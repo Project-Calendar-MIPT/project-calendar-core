@@ -502,6 +502,11 @@ Json::Value RolePermission::toJson() const
     return ret;
 }
 
+std::string RolePermission::toString() const
+{
+    return toJson().toStyledString();
+}
+
 Json::Value RolePermission::toMasqueradedJson(
     const std::vector<std::string> &pMasqueradingVector) const
 {

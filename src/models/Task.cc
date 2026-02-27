@@ -9,7 +9,7 @@
 #include <drogon/utils/Utilities.h>
 #include <string>
 
-//using namespace drogon;
+using namespace drogon;
 using namespace drogon::orm;
 using namespace drogon_model::project_calendar;
 
@@ -1696,6 +1696,11 @@ Json::Value Task::toJson() const
         ret["updated_at"]=Json::Value();
     }
     return ret;
+}
+
+std::string Task::toString() const
+{
+    return toJson().toStyledString();
 }
 
 Json::Value Task::toMasqueradedJson(

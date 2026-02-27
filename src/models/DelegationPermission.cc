@@ -502,6 +502,11 @@ Json::Value DelegationPermission::toJson() const
     return ret;
 }
 
+std::string DelegationPermission::toString() const
+{
+    return toJson().toStyledString();
+}
+
 Json::Value DelegationPermission::toMasqueradedJson(
     const std::vector<std::string> &pMasqueradingVector) const
 {

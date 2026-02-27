@@ -507,6 +507,11 @@ Json::Value TaskDependency::toJson() const
     return ret;
 }
 
+std::string TaskDependency::toString() const
+{
+    return toJson().toStyledString();
+}
+
 Json::Value TaskDependency::toMasqueradedJson(
     const std::vector<std::string> &pMasqueradingVector) const
 {

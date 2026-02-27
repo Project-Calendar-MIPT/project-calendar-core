@@ -18,8 +18,9 @@ const std::string AppUser::Cols::_email = "\"email\"";
 const std::string AppUser::Cols::_display_name = "\"display_name\"";
 const std::string AppUser::Cols::_name = "\"name\"";
 const std::string AppUser::Cols::_surname = "\"surname\"";
-const std::string AppUser::Cols::_phone = "\"phone\"";
+const std::string AppUser::Cols::_patronymic = "\"patronymic\"";
 const std::string AppUser::Cols::_telegram = "\"telegram\"";
+const std::string AppUser::Cols::_phone = "\"phone\"";
 const std::string AppUser::Cols::_locale = "\"locale\"";
 const std::string AppUser::Cols::_password_hash = "\"password_hash\"";
 const std::string AppUser::Cols::_created_at = "\"created_at\"";
@@ -34,8 +35,9 @@ const std::vector<typename AppUser::MetaData> AppUser::metaData_={
 {"display_name","std::string","text",0,0,0,1},
 {"name","std::string","text",0,0,0,0},
 {"surname","std::string","text",0,0,0,0},
-{"phone","std::string","text",0,0,0,0},
+{"patronymic","std::string","text",0,0,0,0},
 {"telegram","std::string","text",0,0,0,0},
+{"phone","std::string","text",0,0,0,0},
 {"locale","std::string","text",0,0,0,0},
 {"password_hash","std::string","text",0,0,0,0},
 {"created_at","::trantor::Date","timestamp with time zone",0,0,0,1},
@@ -70,13 +72,17 @@ AppUser::AppUser(const Row &r, const ssize_t indexOffset) noexcept
         {
             surname_=std::make_shared<std::string>(r["surname"].as<std::string>());
         }
-        if(!r["phone"].isNull())
+        if(!r["patronymic"].isNull())
         {
-            phone_=std::make_shared<std::string>(r["phone"].as<std::string>());
+            patronymic_=std::make_shared<std::string>(r["patronymic"].as<std::string>());
         }
         if(!r["telegram"].isNull())
         {
             telegram_=std::make_shared<std::string>(r["telegram"].as<std::string>());
+        }
+        if(!r["phone"].isNull())
+        {
+            phone_=std::make_shared<std::string>(r["phone"].as<std::string>());
         }
         if(!r["locale"].isNull())
         {
@@ -134,7 +140,7 @@ AppUser::AppUser(const Row &r, const ssize_t indexOffset) noexcept
     else
     {
         size_t offset = (size_t)indexOffset;
-        if(offset + 11 > r.size())
+        if(offset + 12 > r.size())
         {
             LOG_FATAL << "Invalid SQL result for this model";
             return;
@@ -168,7 +174,7 @@ AppUser::AppUser(const Row &r, const ssize_t indexOffset) noexcept
         index = offset + 5;
         if(!r[index].isNull())
         {
-            phone_=std::make_shared<std::string>(r[index].as<std::string>());
+            patronymic_=std::make_shared<std::string>(r[index].as<std::string>());
         }
         index = offset + 6;
         if(!r[index].isNull())
@@ -178,14 +184,19 @@ AppUser::AppUser(const Row &r, const ssize_t indexOffset) noexcept
         index = offset + 7;
         if(!r[index].isNull())
         {
-            locale_=std::make_shared<std::string>(r[index].as<std::string>());
+            phone_=std::make_shared<std::string>(r[index].as<std::string>());
         }
         index = offset + 8;
         if(!r[index].isNull())
         {
-            passwordHash_=std::make_shared<std::string>(r[index].as<std::string>());
+            locale_=std::make_shared<std::string>(r[index].as<std::string>());
         }
         index = offset + 9;
+        if(!r[index].isNull())
+        {
+            passwordHash_=std::make_shared<std::string>(r[index].as<std::string>());
+        }
+        index = offset + 10;
         if(!r[index].isNull())
         {
             auto timeStr = r[index].as<std::string>();
@@ -208,7 +219,7 @@ AppUser::AppUser(const Row &r, const ssize_t indexOffset) noexcept
                 createdAt_=std::make_shared<::trantor::Date>(t*1000000+decimalNum);
             }
         }
-        index = offset + 10;
+        index = offset + 11;
         if(!r[index].isNull())
         {
             auto timeStr = r[index].as<std::string>();
@@ -237,7 +248,7 @@ AppUser::AppUser(const Row &r, const ssize_t indexOffset) noexcept
 
 AppUser::AppUser(const Json::Value &pJson, const std::vector<std::string> &pMasqueradingVector) noexcept(false)
 {
-    if(pMasqueradingVector.size() != 11)
+    if(pMasqueradingVector.size() != 12)
     {
         LOG_ERROR << "Bad masquerading vector";
         return;
@@ -287,7 +298,7 @@ AppUser::AppUser(const Json::Value &pJson, const std::vector<std::string> &pMasq
         dirtyFlag_[5] = true;
         if(!pJson[pMasqueradingVector[5]].isNull())
         {
-            phone_=std::make_shared<std::string>(pJson[pMasqueradingVector[5]].asString());
+            patronymic_=std::make_shared<std::string>(pJson[pMasqueradingVector[5]].asString());
         }
     }
     if(!pMasqueradingVector[6].empty() && pJson.isMember(pMasqueradingVector[6]))
@@ -303,7 +314,7 @@ AppUser::AppUser(const Json::Value &pJson, const std::vector<std::string> &pMasq
         dirtyFlag_[7] = true;
         if(!pJson[pMasqueradingVector[7]].isNull())
         {
-            locale_=std::make_shared<std::string>(pJson[pMasqueradingVector[7]].asString());
+            phone_=std::make_shared<std::string>(pJson[pMasqueradingVector[7]].asString());
         }
     }
     if(!pMasqueradingVector[8].empty() && pJson.isMember(pMasqueradingVector[8]))
@@ -311,7 +322,7 @@ AppUser::AppUser(const Json::Value &pJson, const std::vector<std::string> &pMasq
         dirtyFlag_[8] = true;
         if(!pJson[pMasqueradingVector[8]].isNull())
         {
-            passwordHash_=std::make_shared<std::string>(pJson[pMasqueradingVector[8]].asString());
+            locale_=std::make_shared<std::string>(pJson[pMasqueradingVector[8]].asString());
         }
     }
     if(!pMasqueradingVector[9].empty() && pJson.isMember(pMasqueradingVector[9]))
@@ -319,7 +330,15 @@ AppUser::AppUser(const Json::Value &pJson, const std::vector<std::string> &pMasq
         dirtyFlag_[9] = true;
         if(!pJson[pMasqueradingVector[9]].isNull())
         {
-            auto timeStr = pJson[pMasqueradingVector[9]].asString();
+            passwordHash_=std::make_shared<std::string>(pJson[pMasqueradingVector[9]].asString());
+        }
+    }
+    if(!pMasqueradingVector[10].empty() && pJson.isMember(pMasqueradingVector[10]))
+    {
+        dirtyFlag_[10] = true;
+        if(!pJson[pMasqueradingVector[10]].isNull())
+        {
+            auto timeStr = pJson[pMasqueradingVector[10]].asString();
             struct tm stm;
             memset(&stm,0,sizeof(stm));
             auto p = strptime(timeStr.c_str(),"%Y-%m-%d %H:%M:%S",&stm);
@@ -340,12 +359,12 @@ AppUser::AppUser(const Json::Value &pJson, const std::vector<std::string> &pMasq
             }
         }
     }
-    if(!pMasqueradingVector[10].empty() && pJson.isMember(pMasqueradingVector[10]))
+    if(!pMasqueradingVector[11].empty() && pJson.isMember(pMasqueradingVector[11]))
     {
-        dirtyFlag_[10] = true;
-        if(!pJson[pMasqueradingVector[10]].isNull())
+        dirtyFlag_[11] = true;
+        if(!pJson[pMasqueradingVector[11]].isNull())
         {
-            auto timeStr = pJson[pMasqueradingVector[10]].asString();
+            auto timeStr = pJson[pMasqueradingVector[11]].asString();
             struct tm stm;
             memset(&stm,0,sizeof(stm));
             auto p = strptime(timeStr.c_str(),"%Y-%m-%d %H:%M:%S",&stm);
@@ -410,12 +429,12 @@ AppUser::AppUser(const Json::Value &pJson) noexcept(false)
             surname_=std::make_shared<std::string>(pJson["surname"].asString());
         }
     }
-    if(pJson.isMember("phone"))
+    if(pJson.isMember("patronymic"))
     {
         dirtyFlag_[5]=true;
-        if(!pJson["phone"].isNull())
+        if(!pJson["patronymic"].isNull())
         {
-            phone_=std::make_shared<std::string>(pJson["phone"].asString());
+            patronymic_=std::make_shared<std::string>(pJson["patronymic"].asString());
         }
     }
     if(pJson.isMember("telegram"))
@@ -426,9 +445,17 @@ AppUser::AppUser(const Json::Value &pJson) noexcept(false)
             telegram_=std::make_shared<std::string>(pJson["telegram"].asString());
         }
     }
-    if(pJson.isMember("locale"))
+    if(pJson.isMember("phone"))
     {
         dirtyFlag_[7]=true;
+        if(!pJson["phone"].isNull())
+        {
+            phone_=std::make_shared<std::string>(pJson["phone"].asString());
+        }
+    }
+    if(pJson.isMember("locale"))
+    {
+        dirtyFlag_[8]=true;
         if(!pJson["locale"].isNull())
         {
             locale_=std::make_shared<std::string>(pJson["locale"].asString());
@@ -436,7 +463,7 @@ AppUser::AppUser(const Json::Value &pJson) noexcept(false)
     }
     if(pJson.isMember("password_hash"))
     {
-        dirtyFlag_[8]=true;
+        dirtyFlag_[9]=true;
         if(!pJson["password_hash"].isNull())
         {
             passwordHash_=std::make_shared<std::string>(pJson["password_hash"].asString());
@@ -444,7 +471,7 @@ AppUser::AppUser(const Json::Value &pJson) noexcept(false)
     }
     if(pJson.isMember("created_at"))
     {
-        dirtyFlag_[9]=true;
+        dirtyFlag_[10]=true;
         if(!pJson["created_at"].isNull())
         {
             auto timeStr = pJson["created_at"].asString();
@@ -470,7 +497,7 @@ AppUser::AppUser(const Json::Value &pJson) noexcept(false)
     }
     if(pJson.isMember("updated_at"))
     {
-        dirtyFlag_[10]=true;
+        dirtyFlag_[11]=true;
         if(!pJson["updated_at"].isNull())
         {
             auto timeStr = pJson["updated_at"].asString();
@@ -499,7 +526,7 @@ AppUser::AppUser(const Json::Value &pJson) noexcept(false)
 void AppUser::updateByMasqueradedJson(const Json::Value &pJson,
                                             const std::vector<std::string> &pMasqueradingVector) noexcept(false)
 {
-    if(pMasqueradingVector.size() != 11)
+    if(pMasqueradingVector.size() != 12)
     {
         LOG_ERROR << "Bad masquerading vector";
         return;
@@ -548,7 +575,7 @@ void AppUser::updateByMasqueradedJson(const Json::Value &pJson,
         dirtyFlag_[5] = true;
         if(!pJson[pMasqueradingVector[5]].isNull())
         {
-            phone_=std::make_shared<std::string>(pJson[pMasqueradingVector[5]].asString());
+            patronymic_=std::make_shared<std::string>(pJson[pMasqueradingVector[5]].asString());
         }
     }
     if(!pMasqueradingVector[6].empty() && pJson.isMember(pMasqueradingVector[6]))
@@ -564,7 +591,7 @@ void AppUser::updateByMasqueradedJson(const Json::Value &pJson,
         dirtyFlag_[7] = true;
         if(!pJson[pMasqueradingVector[7]].isNull())
         {
-            locale_=std::make_shared<std::string>(pJson[pMasqueradingVector[7]].asString());
+            phone_=std::make_shared<std::string>(pJson[pMasqueradingVector[7]].asString());
         }
     }
     if(!pMasqueradingVector[8].empty() && pJson.isMember(pMasqueradingVector[8]))
@@ -572,7 +599,7 @@ void AppUser::updateByMasqueradedJson(const Json::Value &pJson,
         dirtyFlag_[8] = true;
         if(!pJson[pMasqueradingVector[8]].isNull())
         {
-            passwordHash_=std::make_shared<std::string>(pJson[pMasqueradingVector[8]].asString());
+            locale_=std::make_shared<std::string>(pJson[pMasqueradingVector[8]].asString());
         }
     }
     if(!pMasqueradingVector[9].empty() && pJson.isMember(pMasqueradingVector[9]))
@@ -580,7 +607,15 @@ void AppUser::updateByMasqueradedJson(const Json::Value &pJson,
         dirtyFlag_[9] = true;
         if(!pJson[pMasqueradingVector[9]].isNull())
         {
-            auto timeStr = pJson[pMasqueradingVector[9]].asString();
+            passwordHash_=std::make_shared<std::string>(pJson[pMasqueradingVector[9]].asString());
+        }
+    }
+    if(!pMasqueradingVector[10].empty() && pJson.isMember(pMasqueradingVector[10]))
+    {
+        dirtyFlag_[10] = true;
+        if(!pJson[pMasqueradingVector[10]].isNull())
+        {
+            auto timeStr = pJson[pMasqueradingVector[10]].asString();
             struct tm stm;
             memset(&stm,0,sizeof(stm));
             auto p = strptime(timeStr.c_str(),"%Y-%m-%d %H:%M:%S",&stm);
@@ -601,12 +636,12 @@ void AppUser::updateByMasqueradedJson(const Json::Value &pJson,
             }
         }
     }
-    if(!pMasqueradingVector[10].empty() && pJson.isMember(pMasqueradingVector[10]))
+    if(!pMasqueradingVector[11].empty() && pJson.isMember(pMasqueradingVector[11]))
     {
-        dirtyFlag_[10] = true;
-        if(!pJson[pMasqueradingVector[10]].isNull())
+        dirtyFlag_[11] = true;
+        if(!pJson[pMasqueradingVector[11]].isNull())
         {
-            auto timeStr = pJson[pMasqueradingVector[10]].asString();
+            auto timeStr = pJson[pMasqueradingVector[11]].asString();
             struct tm stm;
             memset(&stm,0,sizeof(stm));
             auto p = strptime(timeStr.c_str(),"%Y-%m-%d %H:%M:%S",&stm);
@@ -670,12 +705,12 @@ void AppUser::updateByJson(const Json::Value &pJson) noexcept(false)
             surname_=std::make_shared<std::string>(pJson["surname"].asString());
         }
     }
-    if(pJson.isMember("phone"))
+    if(pJson.isMember("patronymic"))
     {
         dirtyFlag_[5] = true;
-        if(!pJson["phone"].isNull())
+        if(!pJson["patronymic"].isNull())
         {
-            phone_=std::make_shared<std::string>(pJson["phone"].asString());
+            patronymic_=std::make_shared<std::string>(pJson["patronymic"].asString());
         }
     }
     if(pJson.isMember("telegram"))
@@ -686,9 +721,17 @@ void AppUser::updateByJson(const Json::Value &pJson) noexcept(false)
             telegram_=std::make_shared<std::string>(pJson["telegram"].asString());
         }
     }
-    if(pJson.isMember("locale"))
+    if(pJson.isMember("phone"))
     {
         dirtyFlag_[7] = true;
+        if(!pJson["phone"].isNull())
+        {
+            phone_=std::make_shared<std::string>(pJson["phone"].asString());
+        }
+    }
+    if(pJson.isMember("locale"))
+    {
+        dirtyFlag_[8] = true;
         if(!pJson["locale"].isNull())
         {
             locale_=std::make_shared<std::string>(pJson["locale"].asString());
@@ -696,7 +739,7 @@ void AppUser::updateByJson(const Json::Value &pJson) noexcept(false)
     }
     if(pJson.isMember("password_hash"))
     {
-        dirtyFlag_[8] = true;
+        dirtyFlag_[9] = true;
         if(!pJson["password_hash"].isNull())
         {
             passwordHash_=std::make_shared<std::string>(pJson["password_hash"].asString());
@@ -704,7 +747,7 @@ void AppUser::updateByJson(const Json::Value &pJson) noexcept(false)
     }
     if(pJson.isMember("created_at"))
     {
-        dirtyFlag_[9] = true;
+        dirtyFlag_[10] = true;
         if(!pJson["created_at"].isNull())
         {
             auto timeStr = pJson["created_at"].asString();
@@ -730,7 +773,7 @@ void AppUser::updateByJson(const Json::Value &pJson) noexcept(false)
     }
     if(pJson.isMember("updated_at"))
     {
-        dirtyFlag_[10] = true;
+        dirtyFlag_[11] = true;
         if(!pJson["updated_at"].isNull())
         {
             auto timeStr = pJson["updated_at"].asString();
@@ -881,30 +924,30 @@ void AppUser::setSurnameToNull() noexcept
     dirtyFlag_[4] = true;
 }
 
-const std::string &AppUser::getValueOfPhone() const noexcept
+const std::string &AppUser::getValueOfPatronymic() const noexcept
 {
     static const std::string defaultValue = std::string();
-    if(phone_)
-        return *phone_;
+    if(patronymic_)
+        return *patronymic_;
     return defaultValue;
 }
-const std::shared_ptr<std::string> &AppUser::getPhone() const noexcept
+const std::shared_ptr<std::string> &AppUser::getPatronymic() const noexcept
 {
-    return phone_;
+    return patronymic_;
 }
-void AppUser::setPhone(const std::string &pPhone) noexcept
+void AppUser::setPatronymic(const std::string &pPatronymic) noexcept
 {
-    phone_ = std::make_shared<std::string>(pPhone);
+    patronymic_ = std::make_shared<std::string>(pPatronymic);
     dirtyFlag_[5] = true;
 }
-void AppUser::setPhone(std::string &&pPhone) noexcept
+void AppUser::setPatronymic(std::string &&pPatronymic) noexcept
 {
-    phone_ = std::make_shared<std::string>(std::move(pPhone));
+    patronymic_ = std::make_shared<std::string>(std::move(pPatronymic));
     dirtyFlag_[5] = true;
 }
-void AppUser::setPhoneToNull() noexcept
+void AppUser::setPatronymicToNull() noexcept
 {
-    phone_.reset();
+    patronymic_.reset();
     dirtyFlag_[5] = true;
 }
 
@@ -935,6 +978,33 @@ void AppUser::setTelegramToNull() noexcept
     dirtyFlag_[6] = true;
 }
 
+const std::string &AppUser::getValueOfPhone() const noexcept
+{
+    static const std::string defaultValue = std::string();
+    if(phone_)
+        return *phone_;
+    return defaultValue;
+}
+const std::shared_ptr<std::string> &AppUser::getPhone() const noexcept
+{
+    return phone_;
+}
+void AppUser::setPhone(const std::string &pPhone) noexcept
+{
+    phone_ = std::make_shared<std::string>(pPhone);
+    dirtyFlag_[7] = true;
+}
+void AppUser::setPhone(std::string &&pPhone) noexcept
+{
+    phone_ = std::make_shared<std::string>(std::move(pPhone));
+    dirtyFlag_[7] = true;
+}
+void AppUser::setPhoneToNull() noexcept
+{
+    phone_.reset();
+    dirtyFlag_[7] = true;
+}
+
 const std::string &AppUser::getValueOfLocale() const noexcept
 {
     static const std::string defaultValue = std::string();
@@ -949,17 +1019,17 @@ const std::shared_ptr<std::string> &AppUser::getLocale() const noexcept
 void AppUser::setLocale(const std::string &pLocale) noexcept
 {
     locale_ = std::make_shared<std::string>(pLocale);
-    dirtyFlag_[7] = true;
+    dirtyFlag_[8] = true;
 }
 void AppUser::setLocale(std::string &&pLocale) noexcept
 {
     locale_ = std::make_shared<std::string>(std::move(pLocale));
-    dirtyFlag_[7] = true;
+    dirtyFlag_[8] = true;
 }
 void AppUser::setLocaleToNull() noexcept
 {
     locale_.reset();
-    dirtyFlag_[7] = true;
+    dirtyFlag_[8] = true;
 }
 
 const std::string &AppUser::getValueOfPasswordHash() const noexcept
@@ -976,17 +1046,17 @@ const std::shared_ptr<std::string> &AppUser::getPasswordHash() const noexcept
 void AppUser::setPasswordHash(const std::string &pPasswordHash) noexcept
 {
     passwordHash_ = std::make_shared<std::string>(pPasswordHash);
-    dirtyFlag_[8] = true;
+    dirtyFlag_[9] = true;
 }
 void AppUser::setPasswordHash(std::string &&pPasswordHash) noexcept
 {
     passwordHash_ = std::make_shared<std::string>(std::move(pPasswordHash));
-    dirtyFlag_[8] = true;
+    dirtyFlag_[9] = true;
 }
 void AppUser::setPasswordHashToNull() noexcept
 {
     passwordHash_.reset();
-    dirtyFlag_[8] = true;
+    dirtyFlag_[9] = true;
 }
 
 const ::trantor::Date &AppUser::getValueOfCreatedAt() const noexcept
@@ -1003,7 +1073,7 @@ const std::shared_ptr<::trantor::Date> &AppUser::getCreatedAt() const noexcept
 void AppUser::setCreatedAt(const ::trantor::Date &pCreatedAt) noexcept
 {
     createdAt_ = std::make_shared<::trantor::Date>(pCreatedAt);
-    dirtyFlag_[9] = true;
+    dirtyFlag_[10] = true;
 }
 
 const ::trantor::Date &AppUser::getValueOfUpdatedAt() const noexcept
@@ -1020,7 +1090,7 @@ const std::shared_ptr<::trantor::Date> &AppUser::getUpdatedAt() const noexcept
 void AppUser::setUpdatedAt(const ::trantor::Date &pUpdatedAt) noexcept
 {
     updatedAt_ = std::make_shared<::trantor::Date>(pUpdatedAt);
-    dirtyFlag_[10] = true;
+    dirtyFlag_[11] = true;
 }
 
 void AppUser::updateId(const uint64_t id)
@@ -1035,8 +1105,9 @@ const std::vector<std::string> &AppUser::insertColumns() noexcept
         "display_name",
         "name",
         "surname",
-        "phone",
+        "patronymic",
         "telegram",
+        "phone",
         "locale",
         "password_hash",
         "created_at",
@@ -1104,9 +1175,9 @@ void AppUser::outputArgs(drogon::orm::internal::SqlBinder &binder) const
     }
     if(dirtyFlag_[5])
     {
-        if(getPhone())
+        if(getPatronymic())
         {
-            binder << getValueOfPhone();
+            binder << getValueOfPatronymic();
         }
         else
         {
@@ -1126,6 +1197,17 @@ void AppUser::outputArgs(drogon::orm::internal::SqlBinder &binder) const
     }
     if(dirtyFlag_[7])
     {
+        if(getPhone())
+        {
+            binder << getValueOfPhone();
+        }
+        else
+        {
+            binder << nullptr;
+        }
+    }
+    if(dirtyFlag_[8])
+    {
         if(getLocale())
         {
             binder << getValueOfLocale();
@@ -1135,7 +1217,7 @@ void AppUser::outputArgs(drogon::orm::internal::SqlBinder &binder) const
             binder << nullptr;
         }
     }
-    if(dirtyFlag_[8])
+    if(dirtyFlag_[9])
     {
         if(getPasswordHash())
         {
@@ -1146,7 +1228,7 @@ void AppUser::outputArgs(drogon::orm::internal::SqlBinder &binder) const
             binder << nullptr;
         }
     }
-    if(dirtyFlag_[9])
+    if(dirtyFlag_[10])
     {
         if(getCreatedAt())
         {
@@ -1157,7 +1239,7 @@ void AppUser::outputArgs(drogon::orm::internal::SqlBinder &binder) const
             binder << nullptr;
         }
     }
-    if(dirtyFlag_[10])
+    if(dirtyFlag_[11])
     {
         if(getUpdatedAt())
         {
@@ -1216,6 +1298,10 @@ const std::vector<std::string> AppUser::updateColumns() const
     if(dirtyFlag_[10])
     {
         ret.push_back(getColumnName(10));
+    }
+    if(dirtyFlag_[11])
+    {
+        ret.push_back(getColumnName(11));
     }
     return ret;
 }
@@ -1279,9 +1365,9 @@ void AppUser::updateArgs(drogon::orm::internal::SqlBinder &binder) const
     }
     if(dirtyFlag_[5])
     {
-        if(getPhone())
+        if(getPatronymic())
         {
-            binder << getValueOfPhone();
+            binder << getValueOfPatronymic();
         }
         else
         {
@@ -1301,6 +1387,17 @@ void AppUser::updateArgs(drogon::orm::internal::SqlBinder &binder) const
     }
     if(dirtyFlag_[7])
     {
+        if(getPhone())
+        {
+            binder << getValueOfPhone();
+        }
+        else
+        {
+            binder << nullptr;
+        }
+    }
+    if(dirtyFlag_[8])
+    {
         if(getLocale())
         {
             binder << getValueOfLocale();
@@ -1310,7 +1407,7 @@ void AppUser::updateArgs(drogon::orm::internal::SqlBinder &binder) const
             binder << nullptr;
         }
     }
-    if(dirtyFlag_[8])
+    if(dirtyFlag_[9])
     {
         if(getPasswordHash())
         {
@@ -1321,7 +1418,7 @@ void AppUser::updateArgs(drogon::orm::internal::SqlBinder &binder) const
             binder << nullptr;
         }
     }
-    if(dirtyFlag_[9])
+    if(dirtyFlag_[10])
     {
         if(getCreatedAt())
         {
@@ -1332,7 +1429,7 @@ void AppUser::updateArgs(drogon::orm::internal::SqlBinder &binder) const
             binder << nullptr;
         }
     }
-    if(dirtyFlag_[10])
+    if(dirtyFlag_[11])
     {
         if(getUpdatedAt())
         {
@@ -1387,13 +1484,13 @@ Json::Value AppUser::toJson() const
     {
         ret["surname"]=Json::Value();
     }
-    if(getPhone())
+    if(getPatronymic())
     {
-        ret["phone"]=getValueOfPhone();
+        ret["patronymic"]=getValueOfPatronymic();
     }
     else
     {
-        ret["phone"]=Json::Value();
+        ret["patronymic"]=Json::Value();
     }
     if(getTelegram())
     {
@@ -1402,6 +1499,14 @@ Json::Value AppUser::toJson() const
     else
     {
         ret["telegram"]=Json::Value();
+    }
+    if(getPhone())
+    {
+        ret["phone"]=getValueOfPhone();
+    }
+    else
+    {
+        ret["phone"]=Json::Value();
     }
     if(getLocale())
     {
@@ -1438,11 +1543,16 @@ Json::Value AppUser::toJson() const
     return ret;
 }
 
+std::string AppUser::toString() const
+{
+    return toJson().toStyledString();
+}
+
 Json::Value AppUser::toMasqueradedJson(
     const std::vector<std::string> &pMasqueradingVector) const
 {
     Json::Value ret;
-    if(pMasqueradingVector.size() == 11)
+    if(pMasqueradingVector.size() == 12)
     {
         if(!pMasqueradingVector[0].empty())
         {
@@ -1501,9 +1611,9 @@ Json::Value AppUser::toMasqueradedJson(
         }
         if(!pMasqueradingVector[5].empty())
         {
-            if(getPhone())
+            if(getPatronymic())
             {
-                ret[pMasqueradingVector[5]]=getValueOfPhone();
+                ret[pMasqueradingVector[5]]=getValueOfPatronymic();
             }
             else
             {
@@ -1523,9 +1633,9 @@ Json::Value AppUser::toMasqueradedJson(
         }
         if(!pMasqueradingVector[7].empty())
         {
-            if(getLocale())
+            if(getPhone())
             {
-                ret[pMasqueradingVector[7]]=getValueOfLocale();
+                ret[pMasqueradingVector[7]]=getValueOfPhone();
             }
             else
             {
@@ -1534,9 +1644,9 @@ Json::Value AppUser::toMasqueradedJson(
         }
         if(!pMasqueradingVector[8].empty())
         {
-            if(getPasswordHash())
+            if(getLocale())
             {
-                ret[pMasqueradingVector[8]]=getValueOfPasswordHash();
+                ret[pMasqueradingVector[8]]=getValueOfLocale();
             }
             else
             {
@@ -1545,9 +1655,9 @@ Json::Value AppUser::toMasqueradedJson(
         }
         if(!pMasqueradingVector[9].empty())
         {
-            if(getCreatedAt())
+            if(getPasswordHash())
             {
-                ret[pMasqueradingVector[9]]=getCreatedAt()->toDbStringLocal();
+                ret[pMasqueradingVector[9]]=getValueOfPasswordHash();
             }
             else
             {
@@ -1556,13 +1666,24 @@ Json::Value AppUser::toMasqueradedJson(
         }
         if(!pMasqueradingVector[10].empty())
         {
-            if(getUpdatedAt())
+            if(getCreatedAt())
             {
-                ret[pMasqueradingVector[10]]=getUpdatedAt()->toDbStringLocal();
+                ret[pMasqueradingVector[10]]=getCreatedAt()->toDbStringLocal();
             }
             else
             {
                 ret[pMasqueradingVector[10]]=Json::Value();
+            }
+        }
+        if(!pMasqueradingVector[11].empty())
+        {
+            if(getUpdatedAt())
+            {
+                ret[pMasqueradingVector[11]]=getUpdatedAt()->toDbStringLocal();
+            }
+            else
+            {
+                ret[pMasqueradingVector[11]]=Json::Value();
             }
         }
         return ret;
@@ -1608,13 +1729,13 @@ Json::Value AppUser::toMasqueradedJson(
     {
         ret["surname"]=Json::Value();
     }
-    if(getPhone())
+    if(getPatronymic())
     {
-        ret["phone"]=getValueOfPhone();
+        ret["patronymic"]=getValueOfPatronymic();
     }
     else
     {
-        ret["phone"]=Json::Value();
+        ret["patronymic"]=Json::Value();
     }
     if(getTelegram())
     {
@@ -1623,6 +1744,14 @@ Json::Value AppUser::toMasqueradedJson(
     else
     {
         ret["telegram"]=Json::Value();
+    }
+    if(getPhone())
+    {
+        ret["phone"]=getValueOfPhone();
+    }
+    else
+    {
+        ret["phone"]=Json::Value();
     }
     if(getLocale())
     {
@@ -1696,9 +1825,9 @@ bool AppUser::validateJsonForCreation(const Json::Value &pJson, std::string &err
         if(!validJsonOfField(4, "surname", pJson["surname"], err, true))
             return false;
     }
-    if(pJson.isMember("phone"))
+    if(pJson.isMember("patronymic"))
     {
-        if(!validJsonOfField(5, "phone", pJson["phone"], err, true))
+        if(!validJsonOfField(5, "patronymic", pJson["patronymic"], err, true))
             return false;
     }
     if(pJson.isMember("telegram"))
@@ -1706,24 +1835,29 @@ bool AppUser::validateJsonForCreation(const Json::Value &pJson, std::string &err
         if(!validJsonOfField(6, "telegram", pJson["telegram"], err, true))
             return false;
     }
+    if(pJson.isMember("phone"))
+    {
+        if(!validJsonOfField(7, "phone", pJson["phone"], err, true))
+            return false;
+    }
     if(pJson.isMember("locale"))
     {
-        if(!validJsonOfField(7, "locale", pJson["locale"], err, true))
+        if(!validJsonOfField(8, "locale", pJson["locale"], err, true))
             return false;
     }
     if(pJson.isMember("password_hash"))
     {
-        if(!validJsonOfField(8, "password_hash", pJson["password_hash"], err, true))
+        if(!validJsonOfField(9, "password_hash", pJson["password_hash"], err, true))
             return false;
     }
     if(pJson.isMember("created_at"))
     {
-        if(!validJsonOfField(9, "created_at", pJson["created_at"], err, true))
+        if(!validJsonOfField(10, "created_at", pJson["created_at"], err, true))
             return false;
     }
     if(pJson.isMember("updated_at"))
     {
-        if(!validJsonOfField(10, "updated_at", pJson["updated_at"], err, true))
+        if(!validJsonOfField(11, "updated_at", pJson["updated_at"], err, true))
             return false;
     }
     return true;
@@ -1732,7 +1866,7 @@ bool AppUser::validateMasqueradedJsonForCreation(const Json::Value &pJson,
                                                  const std::vector<std::string> &pMasqueradingVector,
                                                  std::string &err)
 {
-    if(pMasqueradingVector.size() != 11)
+    if(pMasqueradingVector.size() != 12)
     {
         err = "Bad masquerading vector";
         return false;
@@ -1836,6 +1970,14 @@ bool AppUser::validateMasqueradedJsonForCreation(const Json::Value &pJson,
                   return false;
           }
       }
+      if(!pMasqueradingVector[11].empty())
+      {
+          if(pJson.isMember(pMasqueradingVector[11]))
+          {
+              if(!validJsonOfField(11, pMasqueradingVector[11], pJson[pMasqueradingVector[11]], err, true))
+                  return false;
+          }
+      }
     }
     catch(const Json::LogicError &e)
     {
@@ -1876,9 +2018,9 @@ bool AppUser::validateJsonForUpdate(const Json::Value &pJson, std::string &err)
         if(!validJsonOfField(4, "surname", pJson["surname"], err, false))
             return false;
     }
-    if(pJson.isMember("phone"))
+    if(pJson.isMember("patronymic"))
     {
-        if(!validJsonOfField(5, "phone", pJson["phone"], err, false))
+        if(!validJsonOfField(5, "patronymic", pJson["patronymic"], err, false))
             return false;
     }
     if(pJson.isMember("telegram"))
@@ -1886,24 +2028,29 @@ bool AppUser::validateJsonForUpdate(const Json::Value &pJson, std::string &err)
         if(!validJsonOfField(6, "telegram", pJson["telegram"], err, false))
             return false;
     }
+    if(pJson.isMember("phone"))
+    {
+        if(!validJsonOfField(7, "phone", pJson["phone"], err, false))
+            return false;
+    }
     if(pJson.isMember("locale"))
     {
-        if(!validJsonOfField(7, "locale", pJson["locale"], err, false))
+        if(!validJsonOfField(8, "locale", pJson["locale"], err, false))
             return false;
     }
     if(pJson.isMember("password_hash"))
     {
-        if(!validJsonOfField(8, "password_hash", pJson["password_hash"], err, false))
+        if(!validJsonOfField(9, "password_hash", pJson["password_hash"], err, false))
             return false;
     }
     if(pJson.isMember("created_at"))
     {
-        if(!validJsonOfField(9, "created_at", pJson["created_at"], err, false))
+        if(!validJsonOfField(10, "created_at", pJson["created_at"], err, false))
             return false;
     }
     if(pJson.isMember("updated_at"))
     {
-        if(!validJsonOfField(10, "updated_at", pJson["updated_at"], err, false))
+        if(!validJsonOfField(11, "updated_at", pJson["updated_at"], err, false))
             return false;
     }
     return true;
@@ -1912,7 +2059,7 @@ bool AppUser::validateMasqueradedJsonForUpdate(const Json::Value &pJson,
                                                const std::vector<std::string> &pMasqueradingVector,
                                                std::string &err)
 {
-    if(pMasqueradingVector.size() != 11)
+    if(pMasqueradingVector.size() != 12)
     {
         err = "Bad masquerading vector";
         return false;
@@ -1976,6 +2123,11 @@ bool AppUser::validateMasqueradedJsonForUpdate(const Json::Value &pJson,
       if(!pMasqueradingVector[10].empty() && pJson.isMember(pMasqueradingVector[10]))
       {
           if(!validJsonOfField(10, pMasqueradingVector[10], pJson[pMasqueradingVector[10]], err, false))
+              return false;
+      }
+      if(!pMasqueradingVector[11].empty() && pJson.isMember(pMasqueradingVector[11]))
+      {
+          if(!validJsonOfField(11, pMasqueradingVector[11], pJson[pMasqueradingVector[11]], err, false))
               return false;
       }
     }
@@ -2099,6 +2251,17 @@ bool AppUser::validJsonOfField(size_t index,
         case 9:
             if(pJson.isNull())
             {
+                return true;
+            }
+            if(!pJson.isString())
+            {
+                err="Type error in the "+fieldName+" field";
+                return false;
+            }
+            break;
+        case 10:
+            if(pJson.isNull())
+            {
                 err="The " + fieldName + " column cannot be null";
                 return false;
             }
@@ -2108,7 +2271,7 @@ bool AppUser::validJsonOfField(size_t index,
                 return false;
             }
             break;
-        case 10:
+        case 11:
             if(pJson.isNull())
             {
                 err="The " + fieldName + " column cannot be null";

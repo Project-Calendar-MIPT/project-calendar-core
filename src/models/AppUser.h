@@ -49,8 +49,9 @@ class AppUser
         static const std::string _display_name;
         static const std::string _name;
         static const std::string _surname;
-        static const std::string _phone;
+        static const std::string _patronymic;
         static const std::string _telegram;
+        static const std::string _phone;
         static const std::string _locale;
         static const std::string _password_hash;
         static const std::string _created_at;
@@ -153,15 +154,15 @@ class AppUser
     void setSurname(std::string &&pSurname) noexcept;
     void setSurnameToNull() noexcept;
 
-    /**  For column phone  */
-    ///Get the value of the column phone, returns the default value if the column is null
-    const std::string &getValueOfPhone() const noexcept;
+    /**  For column patronymic  */
+    ///Get the value of the column patronymic, returns the default value if the column is null
+    const std::string &getValueOfPatronymic() const noexcept;
     ///Return a shared_ptr object pointing to the column const value, or an empty shared_ptr object if the column is null
-    const std::shared_ptr<std::string> &getPhone() const noexcept;
-    ///Set the value of the column phone
-    void setPhone(const std::string &pPhone) noexcept;
-    void setPhone(std::string &&pPhone) noexcept;
-    void setPhoneToNull() noexcept;
+    const std::shared_ptr<std::string> &getPatronymic() const noexcept;
+    ///Set the value of the column patronymic
+    void setPatronymic(const std::string &pPatronymic) noexcept;
+    void setPatronymic(std::string &&pPatronymic) noexcept;
+    void setPatronymicToNull() noexcept;
 
     /**  For column telegram  */
     ///Get the value of the column telegram, returns the default value if the column is null
@@ -172,6 +173,16 @@ class AppUser
     void setTelegram(const std::string &pTelegram) noexcept;
     void setTelegram(std::string &&pTelegram) noexcept;
     void setTelegramToNull() noexcept;
+
+    /**  For column phone  */
+    ///Get the value of the column phone, returns the default value if the column is null
+    const std::string &getValueOfPhone() const noexcept;
+    ///Return a shared_ptr object pointing to the column const value, or an empty shared_ptr object if the column is null
+    const std::shared_ptr<std::string> &getPhone() const noexcept;
+    ///Set the value of the column phone
+    void setPhone(const std::string &pPhone) noexcept;
+    void setPhone(std::string &&pPhone) noexcept;
+    void setPhoneToNull() noexcept;
 
     /**  For column locale  */
     ///Get the value of the column locale, returns the default value if the column is null
@@ -210,10 +221,11 @@ class AppUser
     void setUpdatedAt(const ::trantor::Date &pUpdatedAt) noexcept;
 
 
-    static size_t getColumnNumber() noexcept {  return 11;  }
+    static size_t getColumnNumber() noexcept {  return 12;  }
     static const std::string &getColumnName(size_t index) noexcept(false);
 
     Json::Value toJson() const;
+    std::string toString() const;
     Json::Value toMasqueradedJson(const std::vector<std::string> &pMasqueradingVector) const;
     /// Relationship interfaces
   private:
@@ -236,8 +248,9 @@ class AppUser
     std::shared_ptr<std::string> displayName_;
     std::shared_ptr<std::string> name_;
     std::shared_ptr<std::string> surname_;
-    std::shared_ptr<std::string> phone_;
+    std::shared_ptr<std::string> patronymic_;
     std::shared_ptr<std::string> telegram_;
+    std::shared_ptr<std::string> phone_;
     std::shared_ptr<std::string> locale_;
     std::shared_ptr<std::string> passwordHash_;
     std::shared_ptr<::trantor::Date> createdAt_;
@@ -253,7 +266,7 @@ class AppUser
         const bool notNull_;
     };
     static const std::vector<MetaData> metaData_;
-    bool dirtyFlag_[11]={ false };
+    bool dirtyFlag_[12]={ false };
   public:
     static const std::string &sqlForFindingByPrimaryKey()
     {
@@ -299,7 +312,7 @@ class AppUser
         }
         if(dirtyFlag_[5])
         {
-            sql += "phone,";
+            sql += "patronymic,";
             ++parametersCount;
         }
         if(dirtyFlag_[6])
@@ -307,26 +320,31 @@ class AppUser
             sql += "telegram,";
             ++parametersCount;
         }
+        if(dirtyFlag_[7])
+        {
+            sql += "phone,";
+            ++parametersCount;
+        }
         sql += "locale,";
         ++parametersCount;
-        if(!dirtyFlag_[7])
+        if(!dirtyFlag_[8])
         {
             needSelection=true;
         }
-        if(dirtyFlag_[8])
+        if(dirtyFlag_[9])
         {
             sql += "password_hash,";
             ++parametersCount;
         }
         sql += "created_at,";
         ++parametersCount;
-        if(!dirtyFlag_[9])
+        if(!dirtyFlag_[10])
         {
             needSelection=true;
         }
         sql += "updated_at,";
         ++parametersCount;
-        if(!dirtyFlag_[10])
+        if(!dirtyFlag_[11])
         {
             needSelection=true;
         }
@@ -385,25 +403,30 @@ class AppUser
             n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
             sql.append(placeholderStr, n);
         }
-        else
-        {
-            sql +="default,";
-        }
         if(dirtyFlag_[8])
         {
             n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
             sql.append(placeholderStr, n);
+        }
+        else
+        {
+            sql +="default,";
         }
         if(dirtyFlag_[9])
         {
             n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
             sql.append(placeholderStr, n);
         }
+        if(dirtyFlag_[10])
+        {
+            n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
+            sql.append(placeholderStr, n);
+        }
         else
         {
             sql +="default,";
         }
-        if(dirtyFlag_[10])
+        if(dirtyFlag_[11])
         {
             n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
             sql.append(placeholderStr, n);

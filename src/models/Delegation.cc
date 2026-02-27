@@ -1544,6 +1544,11 @@ Json::Value Delegation::toJson() const
     return ret;
 }
 
+std::string Delegation::toString() const
+{
+    return toJson().toStyledString();
+}
+
 Json::Value Delegation::toMasqueradedJson(
     const std::vector<std::string> &pMasqueradingVector) const
 {
