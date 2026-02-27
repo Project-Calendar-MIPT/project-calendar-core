@@ -44,8 +44,9 @@ void AuthController::registerUser(
   }
   const Json::Value& j = *jsonPtr;
 
-  if (!j.isMember("email") || !j.isMember("password") ||
-      !j.isMember("display_name") || !j.isMember("work_schedule")) {
+  if (!j.isMember("email") || !j.isMember("password") || !j.isMember("name") ||
+      !j.isMember("surname") || !j.isMember("display_name") ||
+      !j.isMember("work_schedule")) {
     auto resp = HttpResponse::newHttpJsonResponse(
         Json::Value("Missing required fields"));
     resp->setStatusCode(k400BadRequest);
@@ -56,9 +57,10 @@ void AuthController::registerUser(
   const std::string email = j["email"].asString();
   const std::string password = j["password"].asString();
   const std::string displayName = j["display_name"].asString();
-  const std::string name = j.isMember("name") ? j["name"].asString() : "";
-  const std::string surname =
-      j.isMember("surname") ? j["surname"].asString() : "";
+  const std::string name = j["name"].asString();
+  const std::string surname = j["surname"].asString();
+  const std::string patronymic =
+      j.isMember("patronymic") ? j["patronymic"].asString() : "";
   const std::string phone = j.isMember("phone") ? j["phone"].asString() : "";
   const std::string telegram =
       j.isMember("telegram") ? j["telegram"].asString() : "";
@@ -82,10 +84,14 @@ void AuthController::registerUser(
   }
 
   auto dbClient = app().getDbClient();
+
   try {
-    auto res = dbClient->execSqlSync(
-        "SELECT id FROM app_user WHERE email = $1 LIMIT 1", email);
-    if (res.size() > 0) {
+    drogon::orm::Mapper<AppUser> usersMapper(dbClient);
+    drogon::orm::Mapper<UserWorkSchedule> wsMapper(dbClient);
+
+    auto criteria = drogon::orm::Criteria(
+        AppUser::Cols::_email, drogon::orm::CompareOperator::EQ, email);
+    if (usersMapper.count(criteria) > 0) {
       auto resp = HttpResponse::newHttpJsonResponse(
           Json::Value("Email already exists"));
       resp->setStatusCode(k409Conflict);
@@ -93,80 +99,49 @@ void AuthController::registerUser(
       return;
     }
 
+    auto trans = dbClient->newTransaction();
+
+    drogon::orm::Mapper<AppUser> transUsersMapper(trans);
+    drogon::orm::Mapper<UserWorkSchedule> transWsMapper(trans);
+
     const std::string hash = BCrypt::generateHash(password);
-
-    dbClient->execSqlSync("BEGIN");
-
     AppUser user;
     user.setEmail(email);
     user.setPasswordHash(hash);
     user.setDisplayName(displayName);
-    if (!name.empty()) user.setName(name);
-    if (!surname.empty()) user.setSurname(surname);
+    user.setName(name);
+    user.setSurname(surname);
+    if (!patronymic.empty()) user.setPatronymic(patronymic);
     if (!phone.empty()) user.setPhone(phone);
     if (!telegram.empty()) user.setTelegram(telegram);
     if (!locale.empty()) user.setLocale(locale);
     user.setCreatedAt(::trantor::Date::now());
     user.setUpdatedAt(::trantor::Date::now());
 
-    drogon::orm::Mapper<AppUser> usersMapper(dbClient);
-    usersMapper.insert(user);
+    transUsersMapper.insert(user);
+    std::string createdUserId = user.getValueOfId();
 
-    std::string createdUserId;
-    try {
-      createdUserId = user.getValueOfId();
-    } catch (...) {
-      createdUserId.clear();
-    }
-    if (createdUserId.empty()) {
-      auto idRes = dbClient->execSqlSync(
-          "SELECT id FROM app_user WHERE email = $1 LIMIT 1", email);
-      if (idRes.size() == 0) {
-        dbClient->execSqlSync("ROLLBACK");
-        LOG_ERROR
-            << "registerUser: inserted user but cannot determine id for email "
-            << email;
-        auto resp = HttpResponse::newHttpJsonResponse(
-            Json::Value("Internal server error"));
-        resp->setStatusCode(k500InternalServerError);
-        callback(resp);
-        return;
-      }
-      createdUserId = idRes[0]["id"].as<std::string>();
-    }
-
-    drogon::orm::Mapper<UserWorkSchedule> wsMapper(dbClient);
     for (Json::UInt i = 0; i < workScheduleJson.size(); ++i) {
       const Json::Value item = workScheduleJson[i];
-      if (!item.isObject()) {
-        dbClient->execSqlSync("ROLLBACK");
+
+      if (!item.isObject() || !item.isMember("weekday") ||
+          !item.isMember("start_time") || !item.isMember("end_time")) {
         auto resp = HttpResponse::newHttpJsonResponse(
             Json::Value("Invalid work_schedule item"));
         resp->setStatusCode(k400BadRequest);
         callback(resp);
         return;
       }
-      if (!item.isMember("weekday")) {
-        dbClient->execSqlSync("ROLLBACK");
-        auto resp = HttpResponse::newHttpJsonResponse(
-            Json::Value("Each work_schedule item must contain weekday"));
-        resp->setStatusCode(k400BadRequest);
-        callback(resp);
-        return;
-      }
+
       UserWorkSchedule ws;
       ws.setUserId(createdUserId);
       ws.setWeekday(static_cast<int32_t>(item["weekday"].asInt()));
-      if (item.isMember("start_time") && item["start_time"].isString()) {
-        ws.setStartTime(item["start_time"].asString());
-      }
-      if (item.isMember("end_time") && item["end_time"].isString()) {
-        ws.setEndTime(item["end_time"].asString());
-      }
-      wsMapper.insert(ws);
+      ws.setStartTime(item["start_time"].asString());
+      ws.setEndTime(item["end_time"].asString());
+      transWsMapper.insert(ws);
     }
 
-    dbClient->execSqlSync("COMMIT");
+    trans->commit();
 
     const char* envSecret = std::getenv("JWT_SECRET");
     const std::string secret = envSecret ? envSecret : "secret_key";
@@ -182,40 +157,28 @@ void AuthController::registerUser(
     Json::Value response;
     response["success"] = true;
     response["token"] = token;
+
     Json::Value userJson;
     userJson["id"] = createdUserId;
     userJson["email"] = email;
     userJson["display_name"] = displayName;
-    if (!name.empty()) userJson["name"] = name;
-    if (!surname.empty()) userJson["surname"] = surname;
+    userJson["name"] = name;
+    userJson["surname"] = surname;
+
     response["user"] = userJson;
     response["work_schedule"] = workScheduleJson;
 
     auto resp = HttpResponse::newHttpJsonResponse(response);
     resp->setStatusCode(k201Created);
     callback(resp);
-    return;
+
   } catch (const std::exception& e) {
-    try {
-      dbClient->execSqlSync("ROLLBACK");
-    } catch (...) {
-    }
-    const std::string what = e.what() ? e.what() : std::string();
-    if (containsCaseInsensitive(what, "duplicate") ||
-        containsCaseInsensitive(what, "unique")) {
-      LOG_WARN << "registerUser conflict (email): " << what;
-      auto resp = HttpResponse::newHttpJsonResponse(
-          Json::Value("Email already exists"));
-      resp->setStatusCode(k409Conflict);
-      callback(resp);
-      return;
-    }
-    LOG_ERROR << "registerUser failed: " << what;
+    LOG_ERROR << "registerUser failed: " << e.what();
+
     auto resp =
         HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
     resp->setStatusCode(k500InternalServerError);
     callback(resp);
-    return;
   }
 }
 

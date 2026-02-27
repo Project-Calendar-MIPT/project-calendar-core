@@ -9,10 +9,12 @@
 #include <set>
 #include <vector>
 
+#include "../models/AppUser.h"
 #include "../models/UserWorkSchedule.h"
 #include "UsersController.h"
 
 using namespace drogon;
+using drogon_model::project_calendar::AppUser;
 
 static bool isValidTime(const std::string& t) {
   static const std::regex re("^([01]\\d|2[0-3]):([0-5]\\d)$");
@@ -388,63 +390,30 @@ void UsersController::getUserProfile(
   }
 
   auto dbClient = app().getDbClient();
+
   try {
-    auto res = dbClient->execSqlSync(
-        "SELECT id, email, display_name, name, surname, phone, telegram, "
-        "locale, "
-        "created_at::text AS created_at, updated_at::text AS updated_at "
-        "FROM app_user WHERE id = $1 LIMIT 1",
-        userId);
+    drogon::orm::Mapper<AppUser> mapper(dbClient);
 
-    if (res.size() == 0) {
-      auto resp =
-          HttpResponse::newHttpJsonResponse(Json::Value("User not found"));
-      resp->setStatusCode(k404NotFound);
-      callback(resp);
-      return;
-    }
+    AppUser user = mapper.findByPrimaryKey(userId);
 
-    const auto& row = res[0];
-    Json::Value out;
-    out["id"] = row["id"].as<std::string>();
-    out["email"] = row["email"].isNull()
-                       ? Json::Value()
-                       : Json::Value(row["email"].as<std::string>());
-    out["display_name"] =
-        row["display_name"].isNull()
-            ? Json::Value()
-            : Json::Value(row["display_name"].as<std::string>());
-    out["name"] = row["name"].isNull()
-                      ? Json::Value()
-                      : Json::Value(row["name"].as<std::string>());
-    out["surname"] = row["surname"].isNull()
-                         ? Json::Value()
-                         : Json::Value(row["surname"].as<std::string>());
-    out["phone"] = row["phone"].isNull()
-                       ? Json::Value()
-                       : Json::Value(row["phone"].as<std::string>());
-    out["telegram"] = row["telegram"].isNull()
-                          ? Json::Value()
-                          : Json::Value(row["telegram"].as<std::string>());
-    out["locale"] = row["locale"].isNull()
-                        ? Json::Value()
-                        : Json::Value(row["locale"].as<std::string>());
-    if (!row["created_at"].isNull())
-      out["created_at"] = row["created_at"].as<std::string>();
-    if (!row["updated_at"].isNull())
-      out["updated_at"] = row["updated_at"].as<std::string>();
+    Json::Value out = user.toJson();
+
+    out.removeMember("password_hash");
 
     auto resp = HttpResponse::newHttpJsonResponse(out);
     resp->setStatusCode(k200OK);
     callback(resp);
-    return;
+
+  } catch (const drogon::orm::UnexpectedRows& e) {
+    auto resp =
+        HttpResponse::newHttpJsonResponse(Json::Value("User not found"));
+    resp->setStatusCode(k404NotFound);
+    callback(resp);
   } catch (const std::exception& e) {
-    LOG_ERROR << "getUserProfile failed for user " << userId << ": "
-              << e.what();
+    LOG_ERROR << "getUserProfile failed: " << e.what();
     auto resp =
         HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
     resp->setStatusCode(k500InternalServerError);
     callback(resp);
-    return;
   }
 }
