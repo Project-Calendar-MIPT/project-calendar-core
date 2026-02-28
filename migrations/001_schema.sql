@@ -43,7 +43,7 @@ CREATE INDEX idx_app_user_display_name ON app_user(display_name);
 -- Основная таблица задач с поддержкой иерархии
 -- ============================================================================
 
-CREATE TABLE task (
+CREATE TABLE calendar_task (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     parent_task_id UUID REFERENCES task(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
