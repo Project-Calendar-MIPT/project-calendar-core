@@ -25,7 +25,7 @@ void AuthFilter::doFilter(const HttpRequestPtr& req, FilterCallback&& fcb,
   const std::string token = auth.substr(prefix.size());
 
   const char* envSecret = std::getenv("JWT_SECRET");
-  const std::string secret = envSecret ? envSecret : "replace_with_real_secret";
+  const std::string secret = envSecret ? envSecret : "secret_key";
 
   try {
     auto decoded = jwt::decode(token);

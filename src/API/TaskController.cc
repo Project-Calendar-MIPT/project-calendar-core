@@ -14,7 +14,7 @@
 #include <string>
 #include <vector>
 
-#include "../models/Task.h"
+#include "../models/CalendarTask.h"
 #include "../models/TaskAssignment.h"
 #include "../models/TaskRoleAssignment.h"
 #include "../models/TaskSchedule.h"
@@ -114,7 +114,7 @@ void TaskController::createTask(
       }
     }
 
-    drogon_model::project_calendar::Task task;
+    drogon_model::project_calendar::CalendarTask task;
     try {
       task.updateByJson(j);
     } catch (...) {
@@ -128,8 +128,8 @@ void TaskController::createTask(
     task.setCreatedAt(::trantor::Date::now());
     task.setUpdatedAt(::trantor::Date::now());
 
-    drogon::orm::Mapper<drogon_model::project_calendar::Task> taskMapper(
-        dbClient);
+    drogon::orm::Mapper<drogon_model::project_calendar::CalendarTask>
+        taskMapper(dbClient);
     taskMapper.insert(task);
 
     std::string taskId;
@@ -186,7 +186,7 @@ void TaskController::createTask(
       resp->setStatusCode(k500InternalServerError);
       return callback(resp);
     }
-    drogon_model::project_calendar::Task created(finalRes[0], -1);
+    drogon_model::project_calendar::CalendarTask created(finalRes[0], -1);
     auto out = created.toJson();
     auto resp = HttpResponse::newHttpJsonResponse(out);
     resp->setStatusCode(k201Created);
@@ -449,7 +449,7 @@ void TaskController::updateTask(
       resp->setStatusCode(k404NotFound);
       return callback(resp);
     }
-    drogon_model::project_calendar::Task task(res[0], -1);
+    drogon_model::project_calendar::CalendarTask task(res[0], -1);
 
     try {
       task.updateByJson(j);
@@ -457,8 +457,8 @@ void TaskController::updateTask(
     }
     task.setUpdatedAt(::trantor::Date::now());
 
-    drogon::orm::Mapper<drogon_model::project_calendar::Task> taskMapper(
-        dbClient);
+    drogon::orm::Mapper<drogon_model::project_calendar::CalendarTask>
+        taskMapper(dbClient);
     task.setId(taskId);
     taskMapper.update(task);
 
@@ -476,7 +476,7 @@ void TaskController::updateTask(
       resp->setStatusCode(k500InternalServerError);
       return callback(resp);
     }
-    drogon_model::project_calendar::Task updated(finalRes[0], -1);
+    drogon_model::project_calendar::CalendarTask updated(finalRes[0], -1);
     auto out = updated.toJson();
     auto resp = HttpResponse::newHttpJsonResponse(out);
     resp->setStatusCode(k200OK);

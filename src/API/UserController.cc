@@ -15,6 +15,7 @@
 
 using namespace drogon;
 using drogon_model::project_calendar::AppUser;
+using drogon_model::project_calendar::UserWorkSchedule;
 
 static bool isValidTime(const std::string& t) {
   static const std::regex re("^([01]\\d|2[0-3]):([0-5]\\d)$");
@@ -380,8 +381,8 @@ void UsersController::searchUsers(
 void UsersController::getUserProfile(
     const HttpRequestPtr& req,
     std::function<void(const HttpResponsePtr&)>&& callback) {
-  const std::string userId = getPathVariableCompat(req, "id");
-  if (userId.empty()) {
+  const std::string requestedUserId = getPathVariableCompat(req, "id");
+  if (requestedUserId.empty()) {
     auto resp =
         HttpResponse::newHttpJsonResponse(Json::Value("Missing user id"));
     resp->setStatusCode(k400BadRequest);
@@ -389,16 +390,33 @@ void UsersController::getUserProfile(
     return;
   }
 
+  std::string callerUserId;
+  try {
+    callerUserId = req->attributes()->get<std::string>("user_id");
+  } catch (const std::exception& e) {
+    LOG_ERROR << "Failed to get user_id from attributes: " << e.what();
+    callerUserId = "";
+  }
+
   auto dbClient = app().getDbClient();
 
   try {
     drogon::orm::Mapper<AppUser> mapper(dbClient);
 
-    AppUser user = mapper.findByPrimaryKey(userId);
+    AppUser user = mapper.findByPrimaryKey(requestedUserId);
 
     Json::Value out = user.toJson();
 
     out.removeMember("password_hash");
+
+    bool isOwner = (callerUserId == requestedUserId);
+
+    bool isVisible = user.getValueOfVisibility();
+
+    if (!isOwner && !isVisible) {
+      out.removeMember("phone");
+      out.removeMember("telegram");
+    }
 
     auto resp = HttpResponse::newHttpJsonResponse(out);
     resp->setStatusCode(k200OK);
@@ -411,6 +429,117 @@ void UsersController::getUserProfile(
     callback(resp);
   } catch (const std::exception& e) {
     LOG_ERROR << "getUserProfile failed: " << e.what();
+    auto resp =
+        HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
+    resp->setStatusCode(k500InternalServerError);
+    callback(resp);
+  }
+}
+
+void UsersController::updateUserProfile(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  std::string userId;
+  try {
+    userId = req->attributes()->get<std::string>("user_id");
+  } catch (...) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
+    resp->setStatusCode(k401Unauthorized);
+    callback(resp);
+    return;
+  }
+
+  auto jsonPtr = req->getJsonObject();
+  if (!jsonPtr || !jsonPtr->isObject()) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Invalid JSON"));
+    resp->setStatusCode(k400BadRequest);
+    callback(resp);
+    return;
+  }
+  const Json::Value& j = *jsonPtr;
+
+  auto dbClient = app().getDbClient();
+
+  try {
+    auto trans = dbClient->newTransaction();
+    drogon::orm::Mapper<AppUser> userMapper(trans);
+    drogon::orm::Mapper<UserWorkSchedule> wsMapper(trans);
+
+    AppUser user = userMapper.findByPrimaryKey(userId);
+
+    if (j.isMember("display_name"))
+      user.setDisplayName(j["display_name"].asString());
+    if (j.isMember("name")) user.setName(j["name"].asString());
+    if (j.isMember("surname")) user.setSurname(j["surname"].asString());
+    if (j.isMember("patronymic"))
+      user.setPatronymic(j["patronymic"].asString());
+    if (j.isMember("phone")) user.setPhone(j["phone"].asString());
+    if (j.isMember("telegram")) user.setTelegram(j["telegram"].asString());
+    if (j.isMember("locale")) user.setLocale(j["locale"].asString());
+    if (j.isMember("visibility") && j["visibility"].isBool()) {
+      user.setVisibility(j["visibility"].asBool());
+    }
+
+    user.setUpdatedAt(::trantor::Date::now());
+
+    userMapper.update(user);
+
+    if (j.isMember("work_schedule")) {
+      const Json::Value& workScheduleJson = j["work_schedule"];
+
+      if (!workScheduleJson.isArray() || workScheduleJson.size() == 0) {
+        auto resp = HttpResponse::newHttpJsonResponse(
+            Json::Value("work_schedule must be a non-empty array"));
+        resp->setStatusCode(k400BadRequest);
+        callback(resp);
+        return;
+      }
+
+      wsMapper.deleteBy(drogon::orm::Criteria(UserWorkSchedule::Cols::_user_id,
+                                              drogon::orm::CompareOperator::EQ,
+                                              userId));
+
+      for (Json::UInt i = 0; i < workScheduleJson.size(); ++i) {
+        const Json::Value item = workScheduleJson[i];
+
+        if (!item.isObject() || !item.isMember("weekday") ||
+            !item.isMember("start_time") || !item.isMember("end_time")) {
+          trans->rollback();
+
+          auto resp = HttpResponse::newHttpJsonResponse(
+              Json::Value("Invalid work_schedule item"));
+          resp->setStatusCode(k400BadRequest);
+          callback(resp);
+          return;
+        }
+
+        UserWorkSchedule ws;
+        ws.setUserId(userId);
+        ws.setWeekday(static_cast<int32_t>(item["weekday"].asInt()));
+        ws.setStartTime(item["start_time"].asString());
+        ws.setEndTime(item["end_time"].asString());
+        wsMapper.insert(ws);
+      }
+    }
+
+    Json::Value out = user.toJson();
+    out.removeMember("password_hash");
+
+    if (j.isMember("work_schedule")) {
+      out["work_schedule"] = j["work_schedule"];
+    }
+
+    auto resp = HttpResponse::newHttpJsonResponse(out);
+    resp->setStatusCode(k200OK);
+    callback(resp);
+
+  } catch (const drogon::orm::UnexpectedRows& e) {
+    auto resp =
+        HttpResponse::newHttpJsonResponse(Json::Value("User not found"));
+    resp->setStatusCode(k404NotFound);
+    callback(resp);
+  } catch (const std::exception& e) {
+    LOG_ERROR << "updateUserProfile failed: " << e.what();
     auto resp =
         HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
     resp->setStatusCode(k500InternalServerError);

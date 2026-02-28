@@ -9,7 +9,7 @@
 #include <trantor/utils/Logger.h>
 
 #include <algorithm>
-#include <bcrypt/BCrypt.hpp>
+#include <bcrypt.h>
 #include <cctype>
 #include <exception>
 #include <functional>
@@ -64,6 +64,9 @@ void AuthController::registerUser(
   const std::string phone = j.isMember("phone") ? j["phone"].asString() : "";
   const std::string telegram =
       j.isMember("telegram") ? j["telegram"].asString() : "";
+  const bool visibility = j.isMember("visibility") && j["visibility"].isBool()
+                              ? j["visibility"].asBool()
+                              : false;
   const std::string locale = j.isMember("locale") ? j["locale"].asString() : "";
   const Json::Value workScheduleJson = j["work_schedule"];
 
@@ -104,7 +107,7 @@ void AuthController::registerUser(
     drogon::orm::Mapper<AppUser> transUsersMapper(trans);
     drogon::orm::Mapper<UserWorkSchedule> transWsMapper(trans);
 
-    const std::string hash = BCrypt::generateHash(password);
+    const std::string hash = bcrypt::generateHash(password);
     AppUser user;
     user.setEmail(email);
     user.setPasswordHash(hash);
@@ -115,6 +118,7 @@ void AuthController::registerUser(
     if (!phone.empty()) user.setPhone(phone);
     if (!telegram.empty()) user.setTelegram(telegram);
     if (!locale.empty()) user.setLocale(locale);
+    user.setVisibility(visibility);
     user.setCreatedAt(::trantor::Date::now());
     user.setUpdatedAt(::trantor::Date::now());
 
@@ -126,6 +130,8 @@ void AuthController::registerUser(
 
       if (!item.isObject() || !item.isMember("weekday") ||
           !item.isMember("start_time") || !item.isMember("end_time")) {
+        trans->rollback();
+
         auto resp = HttpResponse::newHttpJsonResponse(
             Json::Value("Invalid work_schedule item"));
         resp->setStatusCode(k400BadRequest);
@@ -140,8 +146,6 @@ void AuthController::registerUser(
       ws.setEndTime(item["end_time"].asString());
       transWsMapper.insert(ws);
     }
-
-    trans->commit();
 
     const char* envSecret = std::getenv("JWT_SECRET");
     const std::string secret = envSecret ? envSecret : "secret_key";
@@ -230,7 +234,7 @@ void AuthController::login(
           }
           const std::string passHash = row["password_hash"].as<std::string>();
 
-          bool ok = BCrypt::validatePassword(password, passHash);
+          bool ok = bcrypt::validatePassword(password, passHash);
           if (!ok) {
             auto resp =
                 HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
