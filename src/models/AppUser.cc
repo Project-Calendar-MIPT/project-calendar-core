@@ -25,6 +25,7 @@ const std::string AppUser::Cols::_locale = "\"locale\"";
 const std::string AppUser::Cols::_password_hash = "\"password_hash\"";
 const std::string AppUser::Cols::_created_at = "\"created_at\"";
 const std::string AppUser::Cols::_updated_at = "\"updated_at\"";
+const std::string AppUser::Cols::_visibility = "\"visibility\"";
 const std::string AppUser::primaryKeyName = "id";
 const bool AppUser::hasPrimaryKey = true;
 const std::string AppUser::tableName = "\"app_user\"";
@@ -41,7 +42,8 @@ const std::vector<typename AppUser::MetaData> AppUser::metaData_={
 {"locale","std::string","text",0,0,0,0},
 {"password_hash","std::string","text",0,0,0,0},
 {"created_at","::trantor::Date","timestamp with time zone",0,0,0,1},
-{"updated_at","::trantor::Date","timestamp with time zone",0,0,0,1}
+{"updated_at","::trantor::Date","timestamp with time zone",0,0,0,1},
+{"visibility","bool","boolean",1,0,0,1}
 };
 const std::string &AppUser::getColumnName(size_t index) noexcept(false)
 {
@@ -136,11 +138,15 @@ AppUser::AppUser(const Row &r, const ssize_t indexOffset) noexcept
                 updatedAt_=std::make_shared<::trantor::Date>(t*1000000+decimalNum);
             }
         }
+        if(!r["visibility"].isNull())
+        {
+            visibility_=std::make_shared<bool>(r["visibility"].as<bool>());
+        }
     }
     else
     {
         size_t offset = (size_t)indexOffset;
-        if(offset + 12 > r.size())
+        if(offset + 13 > r.size())
         {
             LOG_FATAL << "Invalid SQL result for this model";
             return;
@@ -242,13 +248,18 @@ AppUser::AppUser(const Row &r, const ssize_t indexOffset) noexcept
                 updatedAt_=std::make_shared<::trantor::Date>(t*1000000+decimalNum);
             }
         }
+        index = offset + 12;
+        if(!r[index].isNull())
+        {
+            visibility_=std::make_shared<bool>(r[index].as<bool>());
+        }
     }
 
 }
 
 AppUser::AppUser(const Json::Value &pJson, const std::vector<std::string> &pMasqueradingVector) noexcept(false)
 {
-    if(pMasqueradingVector.size() != 12)
+    if(pMasqueradingVector.size() != 13)
     {
         LOG_ERROR << "Bad masquerading vector";
         return;
@@ -383,6 +394,14 @@ AppUser::AppUser(const Json::Value &pJson, const std::vector<std::string> &pMasq
                 }
                 updatedAt_=std::make_shared<::trantor::Date>(t*1000000+decimalNum);
             }
+        }
+    }
+    if(!pMasqueradingVector[12].empty() && pJson.isMember(pMasqueradingVector[12]))
+    {
+        dirtyFlag_[12] = true;
+        if(!pJson[pMasqueradingVector[12]].isNull())
+        {
+            visibility_=std::make_shared<bool>(pJson[pMasqueradingVector[12]].asBool());
         }
     }
 }
@@ -521,12 +540,20 @@ AppUser::AppUser(const Json::Value &pJson) noexcept(false)
             }
         }
     }
+    if(pJson.isMember("visibility"))
+    {
+        dirtyFlag_[12]=true;
+        if(!pJson["visibility"].isNull())
+        {
+            visibility_=std::make_shared<bool>(pJson["visibility"].asBool());
+        }
+    }
 }
 
 void AppUser::updateByMasqueradedJson(const Json::Value &pJson,
                                             const std::vector<std::string> &pMasqueradingVector) noexcept(false)
 {
-    if(pMasqueradingVector.size() != 12)
+    if(pMasqueradingVector.size() != 13)
     {
         LOG_ERROR << "Bad masquerading vector";
         return;
@@ -662,6 +689,14 @@ void AppUser::updateByMasqueradedJson(const Json::Value &pJson,
             }
         }
     }
+    if(!pMasqueradingVector[12].empty() && pJson.isMember(pMasqueradingVector[12]))
+    {
+        dirtyFlag_[12] = true;
+        if(!pJson[pMasqueradingVector[12]].isNull())
+        {
+            visibility_=std::make_shared<bool>(pJson[pMasqueradingVector[12]].asBool());
+        }
+    }
 }
 
 void AppUser::updateByJson(const Json::Value &pJson) noexcept(false)
@@ -795,6 +830,14 @@ void AppUser::updateByJson(const Json::Value &pJson) noexcept(false)
                 }
                 updatedAt_=std::make_shared<::trantor::Date>(t*1000000+decimalNum);
             }
+        }
+    }
+    if(pJson.isMember("visibility"))
+    {
+        dirtyFlag_[12] = true;
+        if(!pJson["visibility"].isNull())
+        {
+            visibility_=std::make_shared<bool>(pJson["visibility"].asBool());
         }
     }
 }
@@ -1093,6 +1136,23 @@ void AppUser::setUpdatedAt(const ::trantor::Date &pUpdatedAt) noexcept
     dirtyFlag_[11] = true;
 }
 
+const bool &AppUser::getValueOfVisibility() const noexcept
+{
+    static const bool defaultValue = bool();
+    if(visibility_)
+        return *visibility_;
+    return defaultValue;
+}
+const std::shared_ptr<bool> &AppUser::getVisibility() const noexcept
+{
+    return visibility_;
+}
+void AppUser::setVisibility(const bool &pVisibility) noexcept
+{
+    visibility_ = std::make_shared<bool>(pVisibility);
+    dirtyFlag_[12] = true;
+}
+
 void AppUser::updateId(const uint64_t id)
 {
 }
@@ -1111,7 +1171,8 @@ const std::vector<std::string> &AppUser::insertColumns() noexcept
         "locale",
         "password_hash",
         "created_at",
-        "updated_at"
+        "updated_at",
+        "visibility"
     };
     return inCols;
 }
@@ -1250,6 +1311,17 @@ void AppUser::outputArgs(drogon::orm::internal::SqlBinder &binder) const
             binder << nullptr;
         }
     }
+    if(dirtyFlag_[12])
+    {
+        if(getVisibility())
+        {
+            binder << getValueOfVisibility();
+        }
+        else
+        {
+            binder << nullptr;
+        }
+    }
 }
 
 const std::vector<std::string> AppUser::updateColumns() const
@@ -1302,6 +1374,10 @@ const std::vector<std::string> AppUser::updateColumns() const
     if(dirtyFlag_[11])
     {
         ret.push_back(getColumnName(11));
+    }
+    if(dirtyFlag_[12])
+    {
+        ret.push_back(getColumnName(12));
     }
     return ret;
 }
@@ -1440,6 +1516,17 @@ void AppUser::updateArgs(drogon::orm::internal::SqlBinder &binder) const
             binder << nullptr;
         }
     }
+    if(dirtyFlag_[12])
+    {
+        if(getVisibility())
+        {
+            binder << getValueOfVisibility();
+        }
+        else
+        {
+            binder << nullptr;
+        }
+    }
 }
 Json::Value AppUser::toJson() const
 {
@@ -1540,6 +1627,14 @@ Json::Value AppUser::toJson() const
     {
         ret["updated_at"]=Json::Value();
     }
+    if(getVisibility())
+    {
+        ret["visibility"]=getValueOfVisibility();
+    }
+    else
+    {
+        ret["visibility"]=Json::Value();
+    }
     return ret;
 }
 
@@ -1552,7 +1647,7 @@ Json::Value AppUser::toMasqueradedJson(
     const std::vector<std::string> &pMasqueradingVector) const
 {
     Json::Value ret;
-    if(pMasqueradingVector.size() == 12)
+    if(pMasqueradingVector.size() == 13)
     {
         if(!pMasqueradingVector[0].empty())
         {
@@ -1686,6 +1781,17 @@ Json::Value AppUser::toMasqueradedJson(
                 ret[pMasqueradingVector[11]]=Json::Value();
             }
         }
+        if(!pMasqueradingVector[12].empty())
+        {
+            if(getVisibility())
+            {
+                ret[pMasqueradingVector[12]]=getValueOfVisibility();
+            }
+            else
+            {
+                ret[pMasqueradingVector[12]]=Json::Value();
+            }
+        }
         return ret;
     }
     LOG_ERROR << "Masquerade failed";
@@ -1785,6 +1891,14 @@ Json::Value AppUser::toMasqueradedJson(
     {
         ret["updated_at"]=Json::Value();
     }
+    if(getVisibility())
+    {
+        ret["visibility"]=getValueOfVisibility();
+    }
+    else
+    {
+        ret["visibility"]=Json::Value();
+    }
     return ret;
 }
 
@@ -1860,13 +1974,18 @@ bool AppUser::validateJsonForCreation(const Json::Value &pJson, std::string &err
         if(!validJsonOfField(11, "updated_at", pJson["updated_at"], err, true))
             return false;
     }
+    if(pJson.isMember("visibility"))
+    {
+        if(!validJsonOfField(12, "visibility", pJson["visibility"], err, true))
+            return false;
+    }
     return true;
 }
 bool AppUser::validateMasqueradedJsonForCreation(const Json::Value &pJson,
                                                  const std::vector<std::string> &pMasqueradingVector,
                                                  std::string &err)
 {
-    if(pMasqueradingVector.size() != 12)
+    if(pMasqueradingVector.size() != 13)
     {
         err = "Bad masquerading vector";
         return false;
@@ -1978,6 +2097,14 @@ bool AppUser::validateMasqueradedJsonForCreation(const Json::Value &pJson,
                   return false;
           }
       }
+      if(!pMasqueradingVector[12].empty())
+      {
+          if(pJson.isMember(pMasqueradingVector[12]))
+          {
+              if(!validJsonOfField(12, pMasqueradingVector[12], pJson[pMasqueradingVector[12]], err, true))
+                  return false;
+          }
+      }
     }
     catch(const Json::LogicError &e)
     {
@@ -2053,13 +2180,18 @@ bool AppUser::validateJsonForUpdate(const Json::Value &pJson, std::string &err)
         if(!validJsonOfField(11, "updated_at", pJson["updated_at"], err, false))
             return false;
     }
+    if(pJson.isMember("visibility"))
+    {
+        if(!validJsonOfField(12, "visibility", pJson["visibility"], err, false))
+            return false;
+    }
     return true;
 }
 bool AppUser::validateMasqueradedJsonForUpdate(const Json::Value &pJson,
                                                const std::vector<std::string> &pMasqueradingVector,
                                                std::string &err)
 {
-    if(pMasqueradingVector.size() != 12)
+    if(pMasqueradingVector.size() != 13)
     {
         err = "Bad masquerading vector";
         return false;
@@ -2128,6 +2260,11 @@ bool AppUser::validateMasqueradedJsonForUpdate(const Json::Value &pJson,
       if(!pMasqueradingVector[11].empty() && pJson.isMember(pMasqueradingVector[11]))
       {
           if(!validJsonOfField(11, pMasqueradingVector[11], pJson[pMasqueradingVector[11]], err, false))
+              return false;
+      }
+      if(!pMasqueradingVector[12].empty() && pJson.isMember(pMasqueradingVector[12]))
+      {
+          if(!validJsonOfField(12, pMasqueradingVector[12], pJson[pMasqueradingVector[12]], err, false))
               return false;
       }
     }
@@ -2278,6 +2415,18 @@ bool AppUser::validJsonOfField(size_t index,
                 return false;
             }
             if(!pJson.isString())
+            {
+                err="Type error in the "+fieldName+" field";
+                return false;
+            }
+            break;
+        case 12:
+            if(pJson.isNull())
+            {
+                err="The " + fieldName + " column cannot be null";
+                return false;
+            }
+            if(!pJson.isBool())
             {
                 err="Type error in the "+fieldName+" field";
                 return false;

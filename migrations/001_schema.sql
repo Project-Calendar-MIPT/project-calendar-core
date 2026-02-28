@@ -31,7 +31,8 @@ CREATE TABLE app_user (
     locale TEXT DEFAULT 'ru-RU',
     password_hash TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    visibility BOOLEAN NOT NULL DEFAULT false
 );
 
 CREATE INDEX idx_app_user_email ON app_user(email);
