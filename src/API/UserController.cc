@@ -480,6 +480,15 @@ void UsersController::updateUserProfile(
       user.setVisibility(j["visibility"].asBool());
     }
 
+    if (j.isMember("experience_level")) {
+      user.setExperienceLevel(j["experience_level"].asString());
+    }
+
+    if (j.isMember("skills") && j["skills"].isArray()) {
+      Json::FastWriter writer;
+      user.setSkills(writer.write(j["skills"]));
+    }
+
     user.setUpdatedAt(::trantor::Date::now());
 
     userMapper.update(user);

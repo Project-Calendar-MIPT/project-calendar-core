@@ -81,6 +81,13 @@ void AuthController::registerUser(
                               : false;
   const std::string locale = j.isMember("locale") ? j["locale"].asString() : "";
   const Json::Value workScheduleJson = j["work_schedule"];
+  const std::string experienceLevel =
+      j.isMember("experience_level") ? j["experience_level"].asString() : "";
+
+  Json::Value skillsJson(Json::arrayValue);
+  if (j.isMember("skills") && j["skills"].isArray()) {
+    skillsJson = j["skills"];
+  }
 
   const std::regex emailRegex(
       R"(^[a-zA-Z0-9_.+-]+@([a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)$)");
@@ -170,6 +177,14 @@ void AuthController::registerUser(
     user.setConfirmationToken(confirmationToken);
     user.setIsVerified(false);
 
+    if (!experienceLevel.empty()) {
+      user.setExperienceLevel(experienceLevel);
+    }
+
+    Json::FastWriter writer;
+    std::string skillsStr = writer.write(skillsJson);
+    user.setSkills(skillsStr);
+
     transUsersMapper.insert(user);
     std::string createdUserId = user.getValueOfId();
 
@@ -212,6 +227,9 @@ void AuthController::registerUser(
 
     response["user"] = userJson;
     response["work_schedule"] = workScheduleJson;
+
+    userJson["experience_level"] = experienceLevel;
+    userJson["skills"] = skillsJson;
 
     auto resp = HttpResponse::newHttpJsonResponse(response);
     resp->setStatusCode(k201Created);
