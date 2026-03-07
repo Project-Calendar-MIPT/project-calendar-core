@@ -25,12 +25,16 @@ CREATE TABLE app_user (
     display_name TEXT NOT NULL,
     name TEXT,
     surname TEXT,
-    phone TEXT,
+    patronymic TEXT,
     telegram TEXT,
+    phone TEXT,
     locale TEXT DEFAULT 'ru-RU',
     password_hash TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    visibility BOOLEAN NOT NULL DEFAULT false,
+    is_verified BOOLEAN NOT NULL DEFAULT false,
+    confirmation_token TEXT
 );
 
 CREATE INDEX idx_app_user_email ON app_user(email);
@@ -41,7 +45,7 @@ CREATE INDEX idx_app_user_display_name ON app_user(display_name);
 -- Основная таблица задач с поддержкой иерархии
 -- ============================================================================
 
-CREATE TABLE task (
+CREATE TABLE calendar_task (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     parent_task_id UUID REFERENCES task(id) ON DELETE CASCADE,
     title TEXT NOT NULL,

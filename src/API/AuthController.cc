@@ -1,18 +1,21 @@
 #include "AuthController.h"
 
+#include <bcrypt.h>
 #include <drogon/drogon.h>
 #include <drogon/orm/DbClient.h>
 #include <drogon/orm/Mapper.h>
 #include <drogon/orm/Result.h>
+#include <drogon/utils/Utilities.h>
 #include <json/json.h>
 #include <jwt-cpp/jwt.h>
 #include <trantor/utils/Logger.h>
 
 #include <algorithm>
-#include <bcrypt.h>
 #include <cctype>
 #include <exception>
 #include <functional>
+#include <regex>
+#include <unordered_set>
 #include <utility>
 
 #include "../models/AppUser.h"
@@ -21,15 +24,24 @@
 using drogon_model::project_calendar::AppUser;
 using drogon_model::project_calendar::UserWorkSchedule;
 
-static bool containsCaseInsensitive(const std::string& hay,
-                                    const std::string& needle) {
-  if (needle.empty()) return true;
-  auto it = std::search(hay.begin(), hay.end(), needle.begin(), needle.end(),
-                        [](char a, char b) {
-                          return std::tolower(static_cast<unsigned char>(a)) ==
-                                 std::tolower(static_cast<unsigned char>(b));
-                        });
-  return it != hay.end();
+static void sendConfirmationEmailLog(const std::string& email,
+                                     const std::string& token) {
+  std::string confirmUrl =
+      "http://localhost:8080/api/auth/confirm?token=" + token;
+  LOG_INFO << "=================================================";
+  LOG_INFO << "ИМИТАЦИЯ ОТПРАВКИ EMAIL ПОДТВЕРЖДЕНИЯ:";
+  LOG_INFO << "Кому: " << email;
+  LOG_INFO << "Ссылка для подтверждения: " << confirmUrl;
+  LOG_INFO << "=================================================";
+}
+
+static void sendLoginEmailLog(const std::string& email,
+                              const std::string& name) {
+  LOG_INFO << "=================================================";
+  LOG_INFO << "ИМИТАЦИЯ ОТПРАВКИ EMAIL УВЕДОМЛЕНИЯ О ВХОДЕ:";
+  LOG_INFO << "Кому: " << email;
+  LOG_INFO << "Сообщение: Пользователь " << name << " успешно вошел в систему.";
+  LOG_INFO << "=================================================";
 }
 
 void AuthController::registerUser(
@@ -70,9 +82,41 @@ void AuthController::registerUser(
   const std::string locale = j.isMember("locale") ? j["locale"].asString() : "";
   const Json::Value workScheduleJson = j["work_schedule"];
 
+  const std::regex emailRegex(
+      R"(^[a-zA-Z0-9_.+-]+@([a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)$)");
+  std::smatch emailMatch;
+  if (!std::regex_match(email, emailMatch, emailRegex)) {
+    auto resp =
+        HttpResponse::newHttpJsonResponse(Json::Value("Invalid email format"));
+    resp->setStatusCode(k400BadRequest);
+    callback(resp);
+    return;
+  }
+
+  std::string domain = emailMatch[1].str();
+  std::unordered_set<std::string> allowedDomains = {
+      "gmail.com", "yandex.ru", "mail.ru", "vk.com", "ya.ru", "phystech.edu"};
+  if (allowedDomains.find(domain) == allowedDomains.end()) {
+    auto resp = HttpResponse::newHttpJsonResponse(
+        Json::Value("Email domain is not allowed"));
+    resp->setStatusCode(k400BadRequest);
+    callback(resp);
+    return;
+  }
+
   if (password.size() < 8) {
     auto resp = HttpResponse::newHttpJsonResponse(
         Json::Value("Password must be at least 8 characters"));
+    resp->setStatusCode(k400BadRequest);
+    callback(resp);
+    return;
+  }
+
+  bool hasDigit = std::any_of(password.begin(), password.end(), ::isdigit);
+  bool hasSpecial = std::any_of(password.begin(), password.end(), ::ispunct);
+  if (!hasDigit || !hasSpecial) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value(
+        "Password must contain at least one digit and one special character"));
     resp->setStatusCode(k400BadRequest);
     callback(resp);
     return;
@@ -122,6 +166,10 @@ void AuthController::registerUser(
     user.setCreatedAt(::trantor::Date::now());
     user.setUpdatedAt(::trantor::Date::now());
 
+    std::string confirmationToken = drogon::utils::getUuid();
+    user.setConfirmationToken(confirmationToken);
+    user.setIsVerified(false);
+
     transUsersMapper.insert(user);
     std::string createdUserId = user.getValueOfId();
 
@@ -147,20 +195,13 @@ void AuthController::registerUser(
       transWsMapper.insert(ws);
     }
 
-    const char* envSecret = std::getenv("JWT_SECRET");
-    const std::string secret = envSecret ? envSecret : "secret_key";
-
-    auto token = jwt::create()
-                     .set_issuer("project-calendar")
-                     .set_type("JWT")
-                     .set_payload_claim("user_id", jwt::claim(createdUserId))
-                     .set_expires_at(std::chrono::system_clock::now() +
-                                     std::chrono::hours{24 * 7})
-                     .sign(jwt::algorithm::hs256{secret});
+    sendConfirmationEmailLog(email, confirmationToken);
 
     Json::Value response;
     response["success"] = true;
-    response["token"] = token;
+    response["message"] =
+        "Registration successful. Please check your email to verify your "
+        "account.";
 
     Json::Value userJson;
     userJson["id"] = createdUserId;
@@ -210,103 +251,95 @@ void AuthController::login(
   const std::string password = j["password"].asString();
 
   auto dbClient = app().getDbClient();
-
   auto callbackCopy = std::move(callback);
 
-  std::function<void(const drogon::orm::Result&)> loginResultCb =
-      [callbackCopy, password](const drogon::orm::Result& r) mutable {
-        try {
-          if (r.size() == 0) {
-            auto resp =
-                HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
-            resp->setStatusCode(k401Unauthorized);
-            callbackCopy(resp);
-            return;
-          }
+  drogon::orm::Mapper<AppUser> mapper(dbClient);
+  auto criteria = drogon::orm::Criteria(
+      AppUser::Cols::_email, drogon::orm::CompareOperator::EQ, email);
 
-          const auto& row = r[0];
-          if (row["password_hash"].isNull()) {
-            auto resp =
-                HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
-            resp->setStatusCode(k401Unauthorized);
-            callbackCopy(resp);
-            return;
-          }
-          const std::string passHash = row["password_hash"].as<std::string>();
-
-          bool ok = bcrypt::validatePassword(password, passHash);
-          if (!ok) {
-            auto resp =
-                HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
-            resp->setStatusCode(k401Unauthorized);
-            callbackCopy(resp);
-            return;
-          }
-
-          const char* envSecret = std::getenv("JWT_SECRET");
-          const std::string secret =
-              envSecret ? envSecret : "replace_with_real_secret";
-
-          using namespace std::chrono;
-          auto now = system_clock::now();
-          auto expires = now + hours(24);
-
-          const std::string userId =
-              row["id"].isNull() ? std::string() : row["id"].as<std::string>();
-          const std::string displayName =
-              row["display_name"].isNull()
-                  ? std::string()
-                  : row["display_name"].as<std::string>();
-          const std::string emailVal = row["email"].isNull()
-                                           ? std::string()
-                                           : row["email"].as<std::string>();
-
-          auto token =
-              jwt::create()
-                  .set_issued_at(now)
-                  .set_expires_at(expires)
-                  .set_type("JWT")
-                  .set_issuer("project-calendar")
-                  .set_payload_claim("sub", jwt::claim(userId))
-                  .set_payload_claim("display_name", jwt::claim(displayName))
-                  .set_payload_claim("email", jwt::claim(emailVal))
-                  .sign(jwt::algorithm::hs256{secret});
-
-          Json::Value respJson;
-          respJson["token"] = token;
-          Json::Value userJson;
-          userJson["id"] = userId;
-          if (!displayName.empty()) userJson["display_name"] = displayName;
-          if (!emailVal.empty()) userJson["email"] = emailVal;
-          respJson["user"] = userJson;
-
-          auto resp = HttpResponse::newHttpJsonResponse(respJson);
-          resp->setStatusCode(k200OK);
+  mapper.findBy(
+      criteria,
+      [callbackCopy, password](const std::vector<AppUser>& users) {
+        if (users.empty()) {
+          auto resp =
+              HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
+          resp->setStatusCode(k401Unauthorized);
           callbackCopy(resp);
-        } catch (const std::exception& ex) {
-          LOG_ERROR << "login handler failed: " << ex.what();
-          auto resp = HttpResponse::newHttpJsonResponse(
-              Json::Value("Internal server error"));
-          resp->setStatusCode(k500InternalServerError);
-          callbackCopy(resp);
+          return;
         }
-      };
 
-  auto exceptPtrCb = [](const std::exception_ptr& ep) {
-    try {
-      if (ep) std::rethrow_exception(ep);
-    } catch (const std::exception& e) {
-      LOG_WARN << "DB error in execSqlAsync (login): " << e.what();
-    } catch (...) {
-      LOG_WARN << "Unknown DB error in execSqlAsync (login)";
-    }
-  };
+        const AppUser& user = users[0];
 
-  dbClient->execSqlAsync(
-      "SELECT id, password_hash, display_name, email, created_at::text AS "
-      "created_at, updated_at::text AS updated_at "
-      "FROM app_user WHERE email = $1 LIMIT 1",
-      std::move(loginResultCb), exceptPtrCb, email);
+        std::string passHash = user.getValueOfPasswordHash();
+        if (passHash.empty()) {
+          auto resp =
+              HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
+          resp->setStatusCode(k401Unauthorized);
+          callbackCopy(resp);
+          return;
+        }
+
+        bool ok = bcrypt::validatePassword(password, passHash);
+        if (!ok) {
+          auto resp =
+              HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
+          resp->setStatusCode(k401Unauthorized);
+          callbackCopy(resp);
+          return;
+        }
+
+        bool isVerified = user.getValueOfIsVerified();
+        if (!isVerified) {
+          auto resp = HttpResponse::newHttpJsonResponse(
+              Json::Value("Email is not verified. Please check your inbox."));
+          resp->setStatusCode(k403Forbidden);
+          callbackCopy(resp);
+          return;
+        }
+
+        const char* envSecret = std::getenv("JWT_SECRET");
+        const std::string secret = envSecret ? envSecret : "secret_key";
+
+        using namespace std::chrono;
+        auto now = system_clock::now();
+        auto expires = now + hours(24);
+
+        const std::string userId = user.getValueOfId();
+        const std::string displayName = user.getValueOfDisplayName();
+        const std::string emailVal = user.getValueOfEmail();
+
+        auto token =
+            jwt::create()
+                .set_issued_at(now)
+                .set_expires_at(expires)
+                .set_type("JWT")
+                .set_issuer("project-calendar")
+                .set_payload_claim("sub", jwt::claim(userId))
+                .set_payload_claim("display_name", jwt::claim(displayName))
+                .set_payload_claim("email", jwt::claim(emailVal))
+                .sign(jwt::algorithm::hs256{secret});
+
+        Json::Value respJson;
+        respJson["token"] = token;
+        Json::Value userJson;
+        userJson["id"] = userId;
+        if (!displayName.empty()) userJson["display_name"] = displayName;
+        if (!emailVal.empty()) userJson["email"] = emailVal;
+        respJson["user"] = userJson;
+
+        sendLoginEmailLog(emailVal, displayName);
+
+        auto resp = HttpResponse::newHttpJsonResponse(respJson);
+        resp->setStatusCode(k200OK);
+        callbackCopy(resp);
+      },
+      [callbackCopy](const drogon::orm::DrogonDbException& e) {
+        LOG_ERROR << "DB error in login: " << e.base().what();
+        auto resp = HttpResponse::newHttpJsonResponse(
+            Json::Value("Internal server error"));
+        resp->setStatusCode(k500InternalServerError);
+        callbackCopy(resp);
+      });
 }
 
 void AuthController::me(
@@ -326,7 +359,7 @@ void AuthController::me(
   const std::string token = authHeader.substr(bearerPrefix.size());
 
   const char* envSecret = std::getenv("JWT_SECRET");
-  const std::string secret = envSecret ? envSecret : "replace_with_real_secret";
+  const std::string secret = envSecret ? envSecret : "secret_key";
 
   try {
     auto decoded = jwt::decode(token);
@@ -348,63 +381,121 @@ void AuthController::me(
     }
 
     auto dbClient = app().getDbClient();
-
     auto callbackCopy = std::move(callback);
 
-    std::function<void(const drogon::orm::Result&)> meResultCb =
-        [callbackCopy](const drogon::orm::Result& r) {
-          try {
-            if (r.size() == 0) {
-              auto resp = HttpResponse::newHttpJsonResponse(
-                  Json::Value("User not found"));
-              resp->setStatusCode(k404NotFound);
-              callbackCopy(resp);
-              return;
-            }
-            const auto& row = r[0];
-            Json::Value userJson;
-            userJson["id"] = row["id"].as<std::string>();
-            if (!row["display_name"].isNull())
-              userJson["display_name"] = row["display_name"].as<std::string>();
-            if (!row["email"].isNull())
-              userJson["email"] = row["email"].as<std::string>();
-            if (!row["created_at"].isNull())
-              userJson["created_at"] = row["created_at"].as<std::string>();
-            if (!row["updated_at"].isNull())
-              userJson["updated_at"] = row["updated_at"].as<std::string>();
-            auto resp = HttpResponse::newHttpJsonResponse(userJson);
-            resp->setStatusCode(k200OK);
-            callbackCopy(resp);
-          } catch (const std::exception& ex) {
-            LOG_ERROR << "me handler DB callback failed: " << ex.what();
+    drogon::orm::Mapper<AppUser> mapper(dbClient);
+
+    auto criteria = drogon::orm::Criteria(
+        AppUser::Cols::_id, drogon::orm::CompareOperator::EQ, userId);
+
+    mapper.findBy(
+        criteria,
+        [callbackCopy](const std::vector<AppUser>& users) {
+          if (users.empty()) {
             auto resp = HttpResponse::newHttpJsonResponse(
-                Json::Value("Internal server error"));
-            resp->setStatusCode(k500InternalServerError);
+                Json::Value("User not found"));
+            resp->setStatusCode(k404NotFound);
             callbackCopy(resp);
+            return;
           }
-        };
 
-    auto exceptPtrCb = [](const std::exception_ptr& ep) {
-      try {
-        if (ep) std::rethrow_exception(ep);
-      } catch (const std::exception& e) {
-        LOG_WARN << "DB error in execSqlAsync (me): " << e.what();
-      } catch (...) {
-        LOG_WARN << "Unknown DB error in execSqlAsync (me)";
-      }
-    };
+          const AppUser& user = users[0];
 
-    dbClient->execSqlAsync(
-        "SELECT id, display_name, email, created_at::text AS created_at, "
-        "updated_at::text AS updated_at "
-        "FROM app_user WHERE id = $1 LIMIT 1",
-        std::move(meResultCb), exceptPtrCb, userId);
+          Json::Value userJson;
+          userJson["id"] = user.getValueOfId();
+
+          userJson["display_name"] = user.getValueOfDisplayName();
+          userJson["email"] = user.getValueOfEmail();
+
+          userJson["created_at"] = user.getValueOfCreatedAt().toDbString();
+          userJson["updated_at"] = user.getValueOfUpdatedAt().toDbString();
+
+          userJson["is_verified"] = user.getValueOfIsVerified();
+
+          auto resp = HttpResponse::newHttpJsonResponse(userJson);
+          resp->setStatusCode(k200OK);
+          callbackCopy(resp);
+        },
+        [callbackCopy](const drogon::orm::DrogonDbException& e) {
+          LOG_ERROR << "DB error in me handler: " << e.base().what();
+          auto resp = HttpResponse::newHttpJsonResponse(
+              Json::Value("Internal server error"));
+          resp->setStatusCode(k500InternalServerError);
+          callbackCopy(resp);
+        });
 
   } catch (const std::exception& e) {
     LOG_WARN << "me token verification failed: " << e.what();
-    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Invalid token"));
+    auto resp = HttpResponse::newHttpJsonResponse(
+        Json::Value("Invalid or expired token"));
     resp->setStatusCode(k401Unauthorized);
     callback(resp);
     return;
   }
+}
+
+void AuthController::confirmEmail(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  std::string token = req->getParameter("token");
+  if (token.empty()) {
+    auto resp =
+        HttpResponse::newHttpJsonResponse(Json::Value("Token is missing"));
+    resp->setStatusCode(k400BadRequest);
+    callback(resp);
+    return;
+  }
+
+  auto dbClient = app().getDbClient();
+  auto callbackCopy = std::move(callback);
+
+  drogon::orm::Mapper<AppUser> mapper(dbClient);
+
+  auto criteria =
+      drogon::orm::Criteria(AppUser::Cols::_confirmation_token,
+                            drogon::orm::CompareOperator::EQ, token);
+
+  mapper.findBy(
+      criteria,
+      [callbackCopy, mapper](const std::vector<AppUser>& users) mutable {
+        if (users.empty()) {
+          auto resp = HttpResponse::newHttpJsonResponse(
+              Json::Value("Invalid or expired token"));
+          resp->setStatusCode(k400BadRequest);
+          callbackCopy(resp);
+          return;
+        }
+
+        AppUser user = users[0];
+
+        user.setIsVerified(true);
+
+        user.setConfirmationTokenToNull();
+
+        mapper.update(
+            user,
+            [callbackCopy](const size_t count) {
+              Json::Value respJson;
+              respJson["success"] = true;
+              respJson["message"] = "Email successfully verified";
+              auto resp = HttpResponse::newHttpJsonResponse(respJson);
+              resp->setStatusCode(k200OK);
+              callbackCopy(resp);
+            },
+            [callbackCopy](const drogon::orm::DrogonDbException& e) {
+              LOG_ERROR << "Database error during user update: "
+                        << e.base().what();
+              auto resp = HttpResponse::newHttpJsonResponse(
+                  Json::Value("Internal server error"));
+              resp->setStatusCode(k500InternalServerError);
+              callbackCopy(resp);
+            });
+      },
+      [callbackCopy](const drogon::orm::DrogonDbException& e) {
+        LOG_ERROR << "Database error during findBy token: " << e.base().what();
+        auto resp = HttpResponse::newHttpJsonResponse(
+            Json::Value("Internal server error"));
+        resp->setStatusCode(k500InternalServerError);
+        callbackCopy(resp);
+      });
 }

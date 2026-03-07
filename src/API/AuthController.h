@@ -11,6 +11,8 @@ class AuthController : public drogon::HttpController<AuthController> {
   ADD_METHOD_TO(AuthController::login, "/api/auth/login", Post);
 
   ADD_METHOD_TO(AuthController::me, "/api/auth/me", Get, "AuthFilter");
+
+  ADD_METHOD_TO(AuthController::confirmEmail, "/api/auth/confirm", Get);
   METHOD_LIST_END
 
   void registerUser(
@@ -19,6 +21,11 @@ class AuthController : public drogon::HttpController<AuthController> {
 
   void login(const drogon::HttpRequestPtr& req,
              std::function<void(const drogon::HttpResponsePtr&)>&& callback);
+
   void me(const drogon::HttpRequestPtr& req,
           std::function<void(const drogon::HttpResponsePtr&)>&& callback);
+
+  void confirmEmail(
+      const drogon::HttpRequestPtr& req,
+      std::function<void(const drogon::HttpResponsePtr&)>&& callback);
 };
