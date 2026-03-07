@@ -26,6 +26,8 @@ const std::string AppUser::Cols::_password_hash = "\"password_hash\"";
 const std::string AppUser::Cols::_created_at = "\"created_at\"";
 const std::string AppUser::Cols::_updated_at = "\"updated_at\"";
 const std::string AppUser::Cols::_visibility = "\"visibility\"";
+const std::string AppUser::Cols::_is_verified = "\"is_verified\"";
+const std::string AppUser::Cols::_confirmation_token = "\"confirmation_token\"";
 const std::string AppUser::primaryKeyName = "id";
 const bool AppUser::hasPrimaryKey = true;
 const std::string AppUser::tableName = "\"app_user\"";
@@ -43,7 +45,9 @@ const std::vector<typename AppUser::MetaData> AppUser::metaData_={
 {"password_hash","std::string","text",0,0,0,0},
 {"created_at","::trantor::Date","timestamp with time zone",0,0,0,1},
 {"updated_at","::trantor::Date","timestamp with time zone",0,0,0,1},
-{"visibility","bool","boolean",1,0,0,1}
+{"visibility","bool","boolean",1,0,0,1},
+{"is_verified","bool","boolean",1,0,0,0},
+{"confirmation_token","std::string","character varying",255,0,0,0}
 };
 const std::string &AppUser::getColumnName(size_t index) noexcept(false)
 {
@@ -142,11 +146,19 @@ AppUser::AppUser(const Row &r, const ssize_t indexOffset) noexcept
         {
             visibility_=std::make_shared<bool>(r["visibility"].as<bool>());
         }
+        if(!r["is_verified"].isNull())
+        {
+            isVerified_=std::make_shared<bool>(r["is_verified"].as<bool>());
+        }
+        if(!r["confirmation_token"].isNull())
+        {
+            confirmationToken_=std::make_shared<std::string>(r["confirmation_token"].as<std::string>());
+        }
     }
     else
     {
         size_t offset = (size_t)indexOffset;
-        if(offset + 13 > r.size())
+        if(offset + 15 > r.size())
         {
             LOG_FATAL << "Invalid SQL result for this model";
             return;
@@ -253,13 +265,23 @@ AppUser::AppUser(const Row &r, const ssize_t indexOffset) noexcept
         {
             visibility_=std::make_shared<bool>(r[index].as<bool>());
         }
+        index = offset + 13;
+        if(!r[index].isNull())
+        {
+            isVerified_=std::make_shared<bool>(r[index].as<bool>());
+        }
+        index = offset + 14;
+        if(!r[index].isNull())
+        {
+            confirmationToken_=std::make_shared<std::string>(r[index].as<std::string>());
+        }
     }
 
 }
 
 AppUser::AppUser(const Json::Value &pJson, const std::vector<std::string> &pMasqueradingVector) noexcept(false)
 {
-    if(pMasqueradingVector.size() != 13)
+    if(pMasqueradingVector.size() != 15)
     {
         LOG_ERROR << "Bad masquerading vector";
         return;
@@ -402,6 +424,22 @@ AppUser::AppUser(const Json::Value &pJson, const std::vector<std::string> &pMasq
         if(!pJson[pMasqueradingVector[12]].isNull())
         {
             visibility_=std::make_shared<bool>(pJson[pMasqueradingVector[12]].asBool());
+        }
+    }
+    if(!pMasqueradingVector[13].empty() && pJson.isMember(pMasqueradingVector[13]))
+    {
+        dirtyFlag_[13] = true;
+        if(!pJson[pMasqueradingVector[13]].isNull())
+        {
+            isVerified_=std::make_shared<bool>(pJson[pMasqueradingVector[13]].asBool());
+        }
+    }
+    if(!pMasqueradingVector[14].empty() && pJson.isMember(pMasqueradingVector[14]))
+    {
+        dirtyFlag_[14] = true;
+        if(!pJson[pMasqueradingVector[14]].isNull())
+        {
+            confirmationToken_=std::make_shared<std::string>(pJson[pMasqueradingVector[14]].asString());
         }
     }
 }
@@ -548,12 +586,28 @@ AppUser::AppUser(const Json::Value &pJson) noexcept(false)
             visibility_=std::make_shared<bool>(pJson["visibility"].asBool());
         }
     }
+    if(pJson.isMember("is_verified"))
+    {
+        dirtyFlag_[13]=true;
+        if(!pJson["is_verified"].isNull())
+        {
+            isVerified_=std::make_shared<bool>(pJson["is_verified"].asBool());
+        }
+    }
+    if(pJson.isMember("confirmation_token"))
+    {
+        dirtyFlag_[14]=true;
+        if(!pJson["confirmation_token"].isNull())
+        {
+            confirmationToken_=std::make_shared<std::string>(pJson["confirmation_token"].asString());
+        }
+    }
 }
 
 void AppUser::updateByMasqueradedJson(const Json::Value &pJson,
                                             const std::vector<std::string> &pMasqueradingVector) noexcept(false)
 {
-    if(pMasqueradingVector.size() != 13)
+    if(pMasqueradingVector.size() != 15)
     {
         LOG_ERROR << "Bad masquerading vector";
         return;
@@ -697,6 +751,22 @@ void AppUser::updateByMasqueradedJson(const Json::Value &pJson,
             visibility_=std::make_shared<bool>(pJson[pMasqueradingVector[12]].asBool());
         }
     }
+    if(!pMasqueradingVector[13].empty() && pJson.isMember(pMasqueradingVector[13]))
+    {
+        dirtyFlag_[13] = true;
+        if(!pJson[pMasqueradingVector[13]].isNull())
+        {
+            isVerified_=std::make_shared<bool>(pJson[pMasqueradingVector[13]].asBool());
+        }
+    }
+    if(!pMasqueradingVector[14].empty() && pJson.isMember(pMasqueradingVector[14]))
+    {
+        dirtyFlag_[14] = true;
+        if(!pJson[pMasqueradingVector[14]].isNull())
+        {
+            confirmationToken_=std::make_shared<std::string>(pJson[pMasqueradingVector[14]].asString());
+        }
+    }
 }
 
 void AppUser::updateByJson(const Json::Value &pJson) noexcept(false)
@@ -838,6 +908,22 @@ void AppUser::updateByJson(const Json::Value &pJson) noexcept(false)
         if(!pJson["visibility"].isNull())
         {
             visibility_=std::make_shared<bool>(pJson["visibility"].asBool());
+        }
+    }
+    if(pJson.isMember("is_verified"))
+    {
+        dirtyFlag_[13] = true;
+        if(!pJson["is_verified"].isNull())
+        {
+            isVerified_=std::make_shared<bool>(pJson["is_verified"].asBool());
+        }
+    }
+    if(pJson.isMember("confirmation_token"))
+    {
+        dirtyFlag_[14] = true;
+        if(!pJson["confirmation_token"].isNull())
+        {
+            confirmationToken_=std::make_shared<std::string>(pJson["confirmation_token"].asString());
         }
     }
 }
@@ -1153,6 +1239,55 @@ void AppUser::setVisibility(const bool &pVisibility) noexcept
     dirtyFlag_[12] = true;
 }
 
+const bool &AppUser::getValueOfIsVerified() const noexcept
+{
+    static const bool defaultValue = bool();
+    if(isVerified_)
+        return *isVerified_;
+    return defaultValue;
+}
+const std::shared_ptr<bool> &AppUser::getIsVerified() const noexcept
+{
+    return isVerified_;
+}
+void AppUser::setIsVerified(const bool &pIsVerified) noexcept
+{
+    isVerified_ = std::make_shared<bool>(pIsVerified);
+    dirtyFlag_[13] = true;
+}
+void AppUser::setIsVerifiedToNull() noexcept
+{
+    isVerified_.reset();
+    dirtyFlag_[13] = true;
+}
+
+const std::string &AppUser::getValueOfConfirmationToken() const noexcept
+{
+    static const std::string defaultValue = std::string();
+    if(confirmationToken_)
+        return *confirmationToken_;
+    return defaultValue;
+}
+const std::shared_ptr<std::string> &AppUser::getConfirmationToken() const noexcept
+{
+    return confirmationToken_;
+}
+void AppUser::setConfirmationToken(const std::string &pConfirmationToken) noexcept
+{
+    confirmationToken_ = std::make_shared<std::string>(pConfirmationToken);
+    dirtyFlag_[14] = true;
+}
+void AppUser::setConfirmationToken(std::string &&pConfirmationToken) noexcept
+{
+    confirmationToken_ = std::make_shared<std::string>(std::move(pConfirmationToken));
+    dirtyFlag_[14] = true;
+}
+void AppUser::setConfirmationTokenToNull() noexcept
+{
+    confirmationToken_.reset();
+    dirtyFlag_[14] = true;
+}
+
 void AppUser::updateId(const uint64_t id)
 {
 }
@@ -1172,7 +1307,9 @@ const std::vector<std::string> &AppUser::insertColumns() noexcept
         "password_hash",
         "created_at",
         "updated_at",
-        "visibility"
+        "visibility",
+        "is_verified",
+        "confirmation_token"
     };
     return inCols;
 }
@@ -1322,6 +1459,28 @@ void AppUser::outputArgs(drogon::orm::internal::SqlBinder &binder) const
             binder << nullptr;
         }
     }
+    if(dirtyFlag_[13])
+    {
+        if(getIsVerified())
+        {
+            binder << getValueOfIsVerified();
+        }
+        else
+        {
+            binder << nullptr;
+        }
+    }
+    if(dirtyFlag_[14])
+    {
+        if(getConfirmationToken())
+        {
+            binder << getValueOfConfirmationToken();
+        }
+        else
+        {
+            binder << nullptr;
+        }
+    }
 }
 
 const std::vector<std::string> AppUser::updateColumns() const
@@ -1378,6 +1537,14 @@ const std::vector<std::string> AppUser::updateColumns() const
     if(dirtyFlag_[12])
     {
         ret.push_back(getColumnName(12));
+    }
+    if(dirtyFlag_[13])
+    {
+        ret.push_back(getColumnName(13));
+    }
+    if(dirtyFlag_[14])
+    {
+        ret.push_back(getColumnName(14));
     }
     return ret;
 }
@@ -1527,6 +1694,28 @@ void AppUser::updateArgs(drogon::orm::internal::SqlBinder &binder) const
             binder << nullptr;
         }
     }
+    if(dirtyFlag_[13])
+    {
+        if(getIsVerified())
+        {
+            binder << getValueOfIsVerified();
+        }
+        else
+        {
+            binder << nullptr;
+        }
+    }
+    if(dirtyFlag_[14])
+    {
+        if(getConfirmationToken())
+        {
+            binder << getValueOfConfirmationToken();
+        }
+        else
+        {
+            binder << nullptr;
+        }
+    }
 }
 Json::Value AppUser::toJson() const
 {
@@ -1635,6 +1824,22 @@ Json::Value AppUser::toJson() const
     {
         ret["visibility"]=Json::Value();
     }
+    if(getIsVerified())
+    {
+        ret["is_verified"]=getValueOfIsVerified();
+    }
+    else
+    {
+        ret["is_verified"]=Json::Value();
+    }
+    if(getConfirmationToken())
+    {
+        ret["confirmation_token"]=getValueOfConfirmationToken();
+    }
+    else
+    {
+        ret["confirmation_token"]=Json::Value();
+    }
     return ret;
 }
 
@@ -1647,7 +1852,7 @@ Json::Value AppUser::toMasqueradedJson(
     const std::vector<std::string> &pMasqueradingVector) const
 {
     Json::Value ret;
-    if(pMasqueradingVector.size() == 13)
+    if(pMasqueradingVector.size() == 15)
     {
         if(!pMasqueradingVector[0].empty())
         {
@@ -1792,6 +1997,28 @@ Json::Value AppUser::toMasqueradedJson(
                 ret[pMasqueradingVector[12]]=Json::Value();
             }
         }
+        if(!pMasqueradingVector[13].empty())
+        {
+            if(getIsVerified())
+            {
+                ret[pMasqueradingVector[13]]=getValueOfIsVerified();
+            }
+            else
+            {
+                ret[pMasqueradingVector[13]]=Json::Value();
+            }
+        }
+        if(!pMasqueradingVector[14].empty())
+        {
+            if(getConfirmationToken())
+            {
+                ret[pMasqueradingVector[14]]=getValueOfConfirmationToken();
+            }
+            else
+            {
+                ret[pMasqueradingVector[14]]=Json::Value();
+            }
+        }
         return ret;
     }
     LOG_ERROR << "Masquerade failed";
@@ -1899,6 +2126,22 @@ Json::Value AppUser::toMasqueradedJson(
     {
         ret["visibility"]=Json::Value();
     }
+    if(getIsVerified())
+    {
+        ret["is_verified"]=getValueOfIsVerified();
+    }
+    else
+    {
+        ret["is_verified"]=Json::Value();
+    }
+    if(getConfirmationToken())
+    {
+        ret["confirmation_token"]=getValueOfConfirmationToken();
+    }
+    else
+    {
+        ret["confirmation_token"]=Json::Value();
+    }
     return ret;
 }
 
@@ -1979,13 +2222,23 @@ bool AppUser::validateJsonForCreation(const Json::Value &pJson, std::string &err
         if(!validJsonOfField(12, "visibility", pJson["visibility"], err, true))
             return false;
     }
+    if(pJson.isMember("is_verified"))
+    {
+        if(!validJsonOfField(13, "is_verified", pJson["is_verified"], err, true))
+            return false;
+    }
+    if(pJson.isMember("confirmation_token"))
+    {
+        if(!validJsonOfField(14, "confirmation_token", pJson["confirmation_token"], err, true))
+            return false;
+    }
     return true;
 }
 bool AppUser::validateMasqueradedJsonForCreation(const Json::Value &pJson,
                                                  const std::vector<std::string> &pMasqueradingVector,
                                                  std::string &err)
 {
-    if(pMasqueradingVector.size() != 13)
+    if(pMasqueradingVector.size() != 15)
     {
         err = "Bad masquerading vector";
         return false;
@@ -2105,6 +2358,22 @@ bool AppUser::validateMasqueradedJsonForCreation(const Json::Value &pJson,
                   return false;
           }
       }
+      if(!pMasqueradingVector[13].empty())
+      {
+          if(pJson.isMember(pMasqueradingVector[13]))
+          {
+              if(!validJsonOfField(13, pMasqueradingVector[13], pJson[pMasqueradingVector[13]], err, true))
+                  return false;
+          }
+      }
+      if(!pMasqueradingVector[14].empty())
+      {
+          if(pJson.isMember(pMasqueradingVector[14]))
+          {
+              if(!validJsonOfField(14, pMasqueradingVector[14], pJson[pMasqueradingVector[14]], err, true))
+                  return false;
+          }
+      }
     }
     catch(const Json::LogicError &e)
     {
@@ -2185,13 +2454,23 @@ bool AppUser::validateJsonForUpdate(const Json::Value &pJson, std::string &err)
         if(!validJsonOfField(12, "visibility", pJson["visibility"], err, false))
             return false;
     }
+    if(pJson.isMember("is_verified"))
+    {
+        if(!validJsonOfField(13, "is_verified", pJson["is_verified"], err, false))
+            return false;
+    }
+    if(pJson.isMember("confirmation_token"))
+    {
+        if(!validJsonOfField(14, "confirmation_token", pJson["confirmation_token"], err, false))
+            return false;
+    }
     return true;
 }
 bool AppUser::validateMasqueradedJsonForUpdate(const Json::Value &pJson,
                                                const std::vector<std::string> &pMasqueradingVector,
                                                std::string &err)
 {
-    if(pMasqueradingVector.size() != 13)
+    if(pMasqueradingVector.size() != 15)
     {
         err = "Bad masquerading vector";
         return false;
@@ -2265,6 +2544,16 @@ bool AppUser::validateMasqueradedJsonForUpdate(const Json::Value &pJson,
       if(!pMasqueradingVector[12].empty() && pJson.isMember(pMasqueradingVector[12]))
       {
           if(!validJsonOfField(12, pMasqueradingVector[12], pJson[pMasqueradingVector[12]], err, false))
+              return false;
+      }
+      if(!pMasqueradingVector[13].empty() && pJson.isMember(pMasqueradingVector[13]))
+      {
+          if(!validJsonOfField(13, pMasqueradingVector[13], pJson[pMasqueradingVector[13]], err, false))
+              return false;
+      }
+      if(!pMasqueradingVector[14].empty() && pJson.isMember(pMasqueradingVector[14]))
+      {
+          if(!validJsonOfField(14, pMasqueradingVector[14], pJson[pMasqueradingVector[14]], err, false))
               return false;
       }
     }
@@ -2429,6 +2718,36 @@ bool AppUser::validJsonOfField(size_t index,
             if(!pJson.isBool())
             {
                 err="Type error in the "+fieldName+" field";
+                return false;
+            }
+            break;
+        case 13:
+            if(pJson.isNull())
+            {
+                return true;
+            }
+            if(!pJson.isBool())
+            {
+                err="Type error in the "+fieldName+" field";
+                return false;
+            }
+            break;
+        case 14:
+            if(pJson.isNull())
+            {
+                return true;
+            }
+            if(!pJson.isString())
+            {
+                err="Type error in the "+fieldName+" field";
+                return false;
+            }
+            if(pJson.isString() && std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>, wchar_t>{}
+                .from_bytes(pJson.asCString()).size() > 255)
+            {
+                err="String length exceeds limit for the " +
+                    fieldName +
+                    " field (the maximum value is 255)";
                 return false;
             }
             break;

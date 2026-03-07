@@ -32,7 +32,9 @@ CREATE TABLE app_user (
     password_hash TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    visibility BOOLEAN NOT NULL DEFAULT false
+    visibility BOOLEAN NOT NULL DEFAULT false,
+    is_verified BOOLEAN NOT NULL DEFAULT false,
+    confirmation_token TEXT
 );
 
 CREATE INDEX idx_app_user_email ON app_user(email);

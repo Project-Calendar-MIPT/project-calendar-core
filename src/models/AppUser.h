@@ -57,6 +57,8 @@ class AppUser
         static const std::string _created_at;
         static const std::string _updated_at;
         static const std::string _visibility;
+        static const std::string _is_verified;
+        static const std::string _confirmation_token;
     };
 
     static const int primaryKeyNumber;
@@ -229,8 +231,27 @@ class AppUser
     ///Set the value of the column visibility
     void setVisibility(const bool &pVisibility) noexcept;
 
+    /**  For column is_verified  */
+    ///Get the value of the column is_verified, returns the default value if the column is null
+    const bool &getValueOfIsVerified() const noexcept;
+    ///Return a shared_ptr object pointing to the column const value, or an empty shared_ptr object if the column is null
+    const std::shared_ptr<bool> &getIsVerified() const noexcept;
+    ///Set the value of the column is_verified
+    void setIsVerified(const bool &pIsVerified) noexcept;
+    void setIsVerifiedToNull() noexcept;
 
-    static size_t getColumnNumber() noexcept {  return 13;  }
+    /**  For column confirmation_token  */
+    ///Get the value of the column confirmation_token, returns the default value if the column is null
+    const std::string &getValueOfConfirmationToken() const noexcept;
+    ///Return a shared_ptr object pointing to the column const value, or an empty shared_ptr object if the column is null
+    const std::shared_ptr<std::string> &getConfirmationToken() const noexcept;
+    ///Set the value of the column confirmation_token
+    void setConfirmationToken(const std::string &pConfirmationToken) noexcept;
+    void setConfirmationToken(std::string &&pConfirmationToken) noexcept;
+    void setConfirmationTokenToNull() noexcept;
+
+
+    static size_t getColumnNumber() noexcept {  return 15;  }
     static const std::string &getColumnName(size_t index) noexcept(false);
 
     Json::Value toJson() const;
@@ -265,6 +286,8 @@ class AppUser
     std::shared_ptr<::trantor::Date> createdAt_;
     std::shared_ptr<::trantor::Date> updatedAt_;
     std::shared_ptr<bool> visibility_;
+    std::shared_ptr<bool> isVerified_;
+    std::shared_ptr<std::string> confirmationToken_;
     struct MetaData
     {
         const std::string colName_;
@@ -276,7 +299,7 @@ class AppUser
         const bool notNull_;
     };
     static const std::vector<MetaData> metaData_;
-    bool dirtyFlag_[13]={ false };
+    bool dirtyFlag_[15]={ false };
   public:
     static const std::string &sqlForFindingByPrimaryKey()
     {
@@ -361,6 +384,18 @@ class AppUser
         sql += "visibility,";
         ++parametersCount;
         if(!dirtyFlag_[12])
+        {
+            needSelection=true;
+        }
+        sql += "is_verified,";
+        ++parametersCount;
+        if(!dirtyFlag_[13])
+        {
+            needSelection=true;
+        }
+        sql += "confirmation_token,";
+        ++parametersCount;
+        if(!dirtyFlag_[14])
         {
             needSelection=true;
         }
@@ -452,6 +487,24 @@ class AppUser
             sql +="default,";
         }
         if(dirtyFlag_[12])
+        {
+            n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
+            sql.append(placeholderStr, n);
+        }
+        else
+        {
+            sql +="default,";
+        }
+        if(dirtyFlag_[13])
+        {
+            n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
+            sql.append(placeholderStr, n);
+        }
+        else
+        {
+            sql +="default,";
+        }
+        if(dirtyFlag_[14])
         {
             n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
             sql.append(placeholderStr, n);
