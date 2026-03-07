@@ -59,6 +59,8 @@ class AppUser
         static const std::string _visibility;
         static const std::string _is_verified;
         static const std::string _confirmation_token;
+        static const std::string _skills;
+        static const std::string _experience_level;
     };
 
     static const int primaryKeyNumber;
@@ -250,8 +252,28 @@ class AppUser
     void setConfirmationToken(std::string &&pConfirmationToken) noexcept;
     void setConfirmationTokenToNull() noexcept;
 
+    /**  For column skills  */
+    ///Get the value of the column skills, returns the default value if the column is null
+    const std::string &getValueOfSkills() const noexcept;
+    ///Return a shared_ptr object pointing to the column const value, or an empty shared_ptr object if the column is null
+    const std::shared_ptr<std::string> &getSkills() const noexcept;
+    ///Set the value of the column skills
+    void setSkills(const std::string &pSkills) noexcept;
+    void setSkills(std::string &&pSkills) noexcept;
+    void setSkillsToNull() noexcept;
 
-    static size_t getColumnNumber() noexcept {  return 15;  }
+    /**  For column experience_level  */
+    ///Get the value of the column experience_level, returns the default value if the column is null
+    const std::string &getValueOfExperienceLevel() const noexcept;
+    ///Return a shared_ptr object pointing to the column const value, or an empty shared_ptr object if the column is null
+    const std::shared_ptr<std::string> &getExperienceLevel() const noexcept;
+    ///Set the value of the column experience_level
+    void setExperienceLevel(const std::string &pExperienceLevel) noexcept;
+    void setExperienceLevel(std::string &&pExperienceLevel) noexcept;
+    void setExperienceLevelToNull() noexcept;
+
+
+    static size_t getColumnNumber() noexcept {  return 17;  }
     static const std::string &getColumnName(size_t index) noexcept(false);
 
     Json::Value toJson() const;
@@ -288,6 +310,8 @@ class AppUser
     std::shared_ptr<bool> visibility_;
     std::shared_ptr<bool> isVerified_;
     std::shared_ptr<std::string> confirmationToken_;
+    std::shared_ptr<std::string> skills_;
+    std::shared_ptr<std::string> experienceLevel_;
     struct MetaData
     {
         const std::string colName_;
@@ -299,7 +323,7 @@ class AppUser
         const bool notNull_;
     };
     static const std::vector<MetaData> metaData_;
-    bool dirtyFlag_[15]={ false };
+    bool dirtyFlag_[17]={ false };
   public:
     static const std::string &sqlForFindingByPrimaryKey()
     {
@@ -398,6 +422,17 @@ class AppUser
         if(!dirtyFlag_[14])
         {
             needSelection=true;
+        }
+        sql += "skills,";
+        ++parametersCount;
+        if(!dirtyFlag_[15])
+        {
+            needSelection=true;
+        }
+        if(dirtyFlag_[16])
+        {
+            sql += "experience_level,";
+            ++parametersCount;
         }
         if(parametersCount > 0)
         {
@@ -512,6 +547,20 @@ class AppUser
         else
         {
             sql +="default,";
+        }
+        if(dirtyFlag_[15])
+        {
+            n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
+            sql.append(placeholderStr, n);
+        }
+        else
+        {
+            sql +="default,";
+        }
+        if(dirtyFlag_[16])
+        {
+            n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
+            sql.append(placeholderStr, n);
         }
         if(parametersCount > 0)
         {

@@ -34,7 +34,9 @@ CREATE TABLE app_user (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     visibility BOOLEAN NOT NULL DEFAULT false,
     is_verified BOOLEAN NOT NULL DEFAULT false,
-    confirmation_token TEXT
+    confirmation_token TEXT,
+    skills JSONB DEFAULT '[]'::jsonb,
+    experience_level TEXT
 );
 
 CREATE INDEX idx_app_user_email ON app_user(email);

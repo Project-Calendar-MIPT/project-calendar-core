@@ -28,6 +28,8 @@ const std::string AppUser::Cols::_updated_at = "\"updated_at\"";
 const std::string AppUser::Cols::_visibility = "\"visibility\"";
 const std::string AppUser::Cols::_is_verified = "\"is_verified\"";
 const std::string AppUser::Cols::_confirmation_token = "\"confirmation_token\"";
+const std::string AppUser::Cols::_skills = "\"skills\"";
+const std::string AppUser::Cols::_experience_level = "\"experience_level\"";
 const std::string AppUser::primaryKeyName = "id";
 const bool AppUser::hasPrimaryKey = true;
 const std::string AppUser::tableName = "\"app_user\"";
@@ -47,7 +49,9 @@ const std::vector<typename AppUser::MetaData> AppUser::metaData_={
 {"updated_at","::trantor::Date","timestamp with time zone",0,0,0,1},
 {"visibility","bool","boolean",1,0,0,1},
 {"is_verified","bool","boolean",1,0,0,0},
-{"confirmation_token","std::string","character varying",255,0,0,0}
+{"confirmation_token","std::string","character varying",255,0,0,0},
+{"skills","std::string","jsonb",0,0,0,0},
+{"experience_level","std::string","text",0,0,0,0}
 };
 const std::string &AppUser::getColumnName(size_t index) noexcept(false)
 {
@@ -154,11 +158,19 @@ AppUser::AppUser(const Row &r, const ssize_t indexOffset) noexcept
         {
             confirmationToken_=std::make_shared<std::string>(r["confirmation_token"].as<std::string>());
         }
+        if(!r["skills"].isNull())
+        {
+            skills_=std::make_shared<std::string>(r["skills"].as<std::string>());
+        }
+        if(!r["experience_level"].isNull())
+        {
+            experienceLevel_=std::make_shared<std::string>(r["experience_level"].as<std::string>());
+        }
     }
     else
     {
         size_t offset = (size_t)indexOffset;
-        if(offset + 15 > r.size())
+        if(offset + 17 > r.size())
         {
             LOG_FATAL << "Invalid SQL result for this model";
             return;
@@ -275,13 +287,23 @@ AppUser::AppUser(const Row &r, const ssize_t indexOffset) noexcept
         {
             confirmationToken_=std::make_shared<std::string>(r[index].as<std::string>());
         }
+        index = offset + 15;
+        if(!r[index].isNull())
+        {
+            skills_=std::make_shared<std::string>(r[index].as<std::string>());
+        }
+        index = offset + 16;
+        if(!r[index].isNull())
+        {
+            experienceLevel_=std::make_shared<std::string>(r[index].as<std::string>());
+        }
     }
 
 }
 
 AppUser::AppUser(const Json::Value &pJson, const std::vector<std::string> &pMasqueradingVector) noexcept(false)
 {
-    if(pMasqueradingVector.size() != 15)
+    if(pMasqueradingVector.size() != 17)
     {
         LOG_ERROR << "Bad masquerading vector";
         return;
@@ -440,6 +462,22 @@ AppUser::AppUser(const Json::Value &pJson, const std::vector<std::string> &pMasq
         if(!pJson[pMasqueradingVector[14]].isNull())
         {
             confirmationToken_=std::make_shared<std::string>(pJson[pMasqueradingVector[14]].asString());
+        }
+    }
+    if(!pMasqueradingVector[15].empty() && pJson.isMember(pMasqueradingVector[15]))
+    {
+        dirtyFlag_[15] = true;
+        if(!pJson[pMasqueradingVector[15]].isNull())
+        {
+            skills_=std::make_shared<std::string>(pJson[pMasqueradingVector[15]].asString());
+        }
+    }
+    if(!pMasqueradingVector[16].empty() && pJson.isMember(pMasqueradingVector[16]))
+    {
+        dirtyFlag_[16] = true;
+        if(!pJson[pMasqueradingVector[16]].isNull())
+        {
+            experienceLevel_=std::make_shared<std::string>(pJson[pMasqueradingVector[16]].asString());
         }
     }
 }
@@ -602,12 +640,28 @@ AppUser::AppUser(const Json::Value &pJson) noexcept(false)
             confirmationToken_=std::make_shared<std::string>(pJson["confirmation_token"].asString());
         }
     }
+    if(pJson.isMember("skills"))
+    {
+        dirtyFlag_[15]=true;
+        if(!pJson["skills"].isNull())
+        {
+            skills_=std::make_shared<std::string>(pJson["skills"].asString());
+        }
+    }
+    if(pJson.isMember("experience_level"))
+    {
+        dirtyFlag_[16]=true;
+        if(!pJson["experience_level"].isNull())
+        {
+            experienceLevel_=std::make_shared<std::string>(pJson["experience_level"].asString());
+        }
+    }
 }
 
 void AppUser::updateByMasqueradedJson(const Json::Value &pJson,
                                             const std::vector<std::string> &pMasqueradingVector) noexcept(false)
 {
-    if(pMasqueradingVector.size() != 15)
+    if(pMasqueradingVector.size() != 17)
     {
         LOG_ERROR << "Bad masquerading vector";
         return;
@@ -767,6 +821,22 @@ void AppUser::updateByMasqueradedJson(const Json::Value &pJson,
             confirmationToken_=std::make_shared<std::string>(pJson[pMasqueradingVector[14]].asString());
         }
     }
+    if(!pMasqueradingVector[15].empty() && pJson.isMember(pMasqueradingVector[15]))
+    {
+        dirtyFlag_[15] = true;
+        if(!pJson[pMasqueradingVector[15]].isNull())
+        {
+            skills_=std::make_shared<std::string>(pJson[pMasqueradingVector[15]].asString());
+        }
+    }
+    if(!pMasqueradingVector[16].empty() && pJson.isMember(pMasqueradingVector[16]))
+    {
+        dirtyFlag_[16] = true;
+        if(!pJson[pMasqueradingVector[16]].isNull())
+        {
+            experienceLevel_=std::make_shared<std::string>(pJson[pMasqueradingVector[16]].asString());
+        }
+    }
 }
 
 void AppUser::updateByJson(const Json::Value &pJson) noexcept(false)
@@ -924,6 +994,22 @@ void AppUser::updateByJson(const Json::Value &pJson) noexcept(false)
         if(!pJson["confirmation_token"].isNull())
         {
             confirmationToken_=std::make_shared<std::string>(pJson["confirmation_token"].asString());
+        }
+    }
+    if(pJson.isMember("skills"))
+    {
+        dirtyFlag_[15] = true;
+        if(!pJson["skills"].isNull())
+        {
+            skills_=std::make_shared<std::string>(pJson["skills"].asString());
+        }
+    }
+    if(pJson.isMember("experience_level"))
+    {
+        dirtyFlag_[16] = true;
+        if(!pJson["experience_level"].isNull())
+        {
+            experienceLevel_=std::make_shared<std::string>(pJson["experience_level"].asString());
         }
     }
 }
@@ -1288,6 +1374,60 @@ void AppUser::setConfirmationTokenToNull() noexcept
     dirtyFlag_[14] = true;
 }
 
+const std::string &AppUser::getValueOfSkills() const noexcept
+{
+    static const std::string defaultValue = std::string();
+    if(skills_)
+        return *skills_;
+    return defaultValue;
+}
+const std::shared_ptr<std::string> &AppUser::getSkills() const noexcept
+{
+    return skills_;
+}
+void AppUser::setSkills(const std::string &pSkills) noexcept
+{
+    skills_ = std::make_shared<std::string>(pSkills);
+    dirtyFlag_[15] = true;
+}
+void AppUser::setSkills(std::string &&pSkills) noexcept
+{
+    skills_ = std::make_shared<std::string>(std::move(pSkills));
+    dirtyFlag_[15] = true;
+}
+void AppUser::setSkillsToNull() noexcept
+{
+    skills_.reset();
+    dirtyFlag_[15] = true;
+}
+
+const std::string &AppUser::getValueOfExperienceLevel() const noexcept
+{
+    static const std::string defaultValue = std::string();
+    if(experienceLevel_)
+        return *experienceLevel_;
+    return defaultValue;
+}
+const std::shared_ptr<std::string> &AppUser::getExperienceLevel() const noexcept
+{
+    return experienceLevel_;
+}
+void AppUser::setExperienceLevel(const std::string &pExperienceLevel) noexcept
+{
+    experienceLevel_ = std::make_shared<std::string>(pExperienceLevel);
+    dirtyFlag_[16] = true;
+}
+void AppUser::setExperienceLevel(std::string &&pExperienceLevel) noexcept
+{
+    experienceLevel_ = std::make_shared<std::string>(std::move(pExperienceLevel));
+    dirtyFlag_[16] = true;
+}
+void AppUser::setExperienceLevelToNull() noexcept
+{
+    experienceLevel_.reset();
+    dirtyFlag_[16] = true;
+}
+
 void AppUser::updateId(const uint64_t id)
 {
 }
@@ -1309,7 +1449,9 @@ const std::vector<std::string> &AppUser::insertColumns() noexcept
         "updated_at",
         "visibility",
         "is_verified",
-        "confirmation_token"
+        "confirmation_token",
+        "skills",
+        "experience_level"
     };
     return inCols;
 }
@@ -1481,6 +1623,28 @@ void AppUser::outputArgs(drogon::orm::internal::SqlBinder &binder) const
             binder << nullptr;
         }
     }
+    if(dirtyFlag_[15])
+    {
+        if(getSkills())
+        {
+            binder << getValueOfSkills();
+        }
+        else
+        {
+            binder << nullptr;
+        }
+    }
+    if(dirtyFlag_[16])
+    {
+        if(getExperienceLevel())
+        {
+            binder << getValueOfExperienceLevel();
+        }
+        else
+        {
+            binder << nullptr;
+        }
+    }
 }
 
 const std::vector<std::string> AppUser::updateColumns() const
@@ -1545,6 +1709,14 @@ const std::vector<std::string> AppUser::updateColumns() const
     if(dirtyFlag_[14])
     {
         ret.push_back(getColumnName(14));
+    }
+    if(dirtyFlag_[15])
+    {
+        ret.push_back(getColumnName(15));
+    }
+    if(dirtyFlag_[16])
+    {
+        ret.push_back(getColumnName(16));
     }
     return ret;
 }
@@ -1716,6 +1888,28 @@ void AppUser::updateArgs(drogon::orm::internal::SqlBinder &binder) const
             binder << nullptr;
         }
     }
+    if(dirtyFlag_[15])
+    {
+        if(getSkills())
+        {
+            binder << getValueOfSkills();
+        }
+        else
+        {
+            binder << nullptr;
+        }
+    }
+    if(dirtyFlag_[16])
+    {
+        if(getExperienceLevel())
+        {
+            binder << getValueOfExperienceLevel();
+        }
+        else
+        {
+            binder << nullptr;
+        }
+    }
 }
 Json::Value AppUser::toJson() const
 {
@@ -1840,6 +2034,22 @@ Json::Value AppUser::toJson() const
     {
         ret["confirmation_token"]=Json::Value();
     }
+    if(getSkills())
+    {
+        ret["skills"]=getValueOfSkills();
+    }
+    else
+    {
+        ret["skills"]=Json::Value();
+    }
+    if(getExperienceLevel())
+    {
+        ret["experience_level"]=getValueOfExperienceLevel();
+    }
+    else
+    {
+        ret["experience_level"]=Json::Value();
+    }
     return ret;
 }
 
@@ -1852,7 +2062,7 @@ Json::Value AppUser::toMasqueradedJson(
     const std::vector<std::string> &pMasqueradingVector) const
 {
     Json::Value ret;
-    if(pMasqueradingVector.size() == 15)
+    if(pMasqueradingVector.size() == 17)
     {
         if(!pMasqueradingVector[0].empty())
         {
@@ -2019,6 +2229,28 @@ Json::Value AppUser::toMasqueradedJson(
                 ret[pMasqueradingVector[14]]=Json::Value();
             }
         }
+        if(!pMasqueradingVector[15].empty())
+        {
+            if(getSkills())
+            {
+                ret[pMasqueradingVector[15]]=getValueOfSkills();
+            }
+            else
+            {
+                ret[pMasqueradingVector[15]]=Json::Value();
+            }
+        }
+        if(!pMasqueradingVector[16].empty())
+        {
+            if(getExperienceLevel())
+            {
+                ret[pMasqueradingVector[16]]=getValueOfExperienceLevel();
+            }
+            else
+            {
+                ret[pMasqueradingVector[16]]=Json::Value();
+            }
+        }
         return ret;
     }
     LOG_ERROR << "Masquerade failed";
@@ -2142,6 +2374,22 @@ Json::Value AppUser::toMasqueradedJson(
     {
         ret["confirmation_token"]=Json::Value();
     }
+    if(getSkills())
+    {
+        ret["skills"]=getValueOfSkills();
+    }
+    else
+    {
+        ret["skills"]=Json::Value();
+    }
+    if(getExperienceLevel())
+    {
+        ret["experience_level"]=getValueOfExperienceLevel();
+    }
+    else
+    {
+        ret["experience_level"]=Json::Value();
+    }
     return ret;
 }
 
@@ -2232,13 +2480,23 @@ bool AppUser::validateJsonForCreation(const Json::Value &pJson, std::string &err
         if(!validJsonOfField(14, "confirmation_token", pJson["confirmation_token"], err, true))
             return false;
     }
+    if(pJson.isMember("skills"))
+    {
+        if(!validJsonOfField(15, "skills", pJson["skills"], err, true))
+            return false;
+    }
+    if(pJson.isMember("experience_level"))
+    {
+        if(!validJsonOfField(16, "experience_level", pJson["experience_level"], err, true))
+            return false;
+    }
     return true;
 }
 bool AppUser::validateMasqueradedJsonForCreation(const Json::Value &pJson,
                                                  const std::vector<std::string> &pMasqueradingVector,
                                                  std::string &err)
 {
-    if(pMasqueradingVector.size() != 15)
+    if(pMasqueradingVector.size() != 17)
     {
         err = "Bad masquerading vector";
         return false;
@@ -2374,6 +2632,22 @@ bool AppUser::validateMasqueradedJsonForCreation(const Json::Value &pJson,
                   return false;
           }
       }
+      if(!pMasqueradingVector[15].empty())
+      {
+          if(pJson.isMember(pMasqueradingVector[15]))
+          {
+              if(!validJsonOfField(15, pMasqueradingVector[15], pJson[pMasqueradingVector[15]], err, true))
+                  return false;
+          }
+      }
+      if(!pMasqueradingVector[16].empty())
+      {
+          if(pJson.isMember(pMasqueradingVector[16]))
+          {
+              if(!validJsonOfField(16, pMasqueradingVector[16], pJson[pMasqueradingVector[16]], err, true))
+                  return false;
+          }
+      }
     }
     catch(const Json::LogicError &e)
     {
@@ -2464,13 +2738,23 @@ bool AppUser::validateJsonForUpdate(const Json::Value &pJson, std::string &err)
         if(!validJsonOfField(14, "confirmation_token", pJson["confirmation_token"], err, false))
             return false;
     }
+    if(pJson.isMember("skills"))
+    {
+        if(!validJsonOfField(15, "skills", pJson["skills"], err, false))
+            return false;
+    }
+    if(pJson.isMember("experience_level"))
+    {
+        if(!validJsonOfField(16, "experience_level", pJson["experience_level"], err, false))
+            return false;
+    }
     return true;
 }
 bool AppUser::validateMasqueradedJsonForUpdate(const Json::Value &pJson,
                                                const std::vector<std::string> &pMasqueradingVector,
                                                std::string &err)
 {
-    if(pMasqueradingVector.size() != 15)
+    if(pMasqueradingVector.size() != 17)
     {
         err = "Bad masquerading vector";
         return false;
@@ -2554,6 +2838,16 @@ bool AppUser::validateMasqueradedJsonForUpdate(const Json::Value &pJson,
       if(!pMasqueradingVector[14].empty() && pJson.isMember(pMasqueradingVector[14]))
       {
           if(!validJsonOfField(14, pMasqueradingVector[14], pJson[pMasqueradingVector[14]], err, false))
+              return false;
+      }
+      if(!pMasqueradingVector[15].empty() && pJson.isMember(pMasqueradingVector[15]))
+      {
+          if(!validJsonOfField(15, pMasqueradingVector[15], pJson[pMasqueradingVector[15]], err, false))
+              return false;
+      }
+      if(!pMasqueradingVector[16].empty() && pJson.isMember(pMasqueradingVector[16]))
+      {
+          if(!validJsonOfField(16, pMasqueradingVector[16], pJson[pMasqueradingVector[16]], err, false))
               return false;
       }
     }
@@ -2748,6 +3042,28 @@ bool AppUser::validJsonOfField(size_t index,
                 err="String length exceeds limit for the " +
                     fieldName +
                     " field (the maximum value is 255)";
+                return false;
+            }
+            break;
+        case 15:
+            if(pJson.isNull())
+            {
+                return true;
+            }
+            if(!pJson.isString())
+            {
+                err="Type error in the "+fieldName+" field";
+                return false;
+            }
+            break;
+        case 16:
+            if(pJson.isNull())
+            {
+                return true;
+            }
+            if(!pJson.isString())
+            {
+                err="Type error in the "+fieldName+" field";
                 return false;
             }
             break;
