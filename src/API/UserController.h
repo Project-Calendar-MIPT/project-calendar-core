@@ -20,6 +20,9 @@ class UsersController : public drogon::HttpController<UsersController> {
 
   ADD_METHOD_TO(UsersController::updateUserProfile, "/api/users/profile", Put,
                 "AuthFilter");
+
+  ADD_METHOD_TO(UsersController::uploadAvatar, "/api/users/avatar", Post,
+                "AuthFilter");
   METHOD_LIST_END
 
   void setWorkSchedule(const HttpRequestPtr& req,
@@ -35,6 +38,9 @@ class UsersController : public drogon::HttpController<UsersController> {
                       std::function<void(const HttpResponsePtr&)>&& callback);
 
   void updateUserProfile(
-      const drogon::HttpRequestPtr& req,
-      std::function<void(const drogon::HttpResponsePtr&)>&& callback);
+      const HttpRequestPtr& req,
+      std::function<void(const HttpResponsePtr&)>&& callback);
+
+  void uploadAvatar(const HttpRequestPtr& req,
+                    std::function<void(const HttpResponsePtr&)>&& callback);
 };

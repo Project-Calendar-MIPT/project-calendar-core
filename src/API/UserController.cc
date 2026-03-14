@@ -11,7 +11,7 @@
 
 #include "../models/AppUser.h"
 #include "../models/UserWorkSchedule.h"
-#include "UsersController.h"
+#include "UserController.h"
 
 using namespace drogon;
 using drogon_model::project_calendar::AppUser;
@@ -549,6 +549,74 @@ void UsersController::updateUserProfile(
     callback(resp);
   } catch (const std::exception& e) {
     LOG_ERROR << "updateUserProfile failed: " << e.what();
+    auto resp =
+        HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
+    resp->setStatusCode(k500InternalServerError);
+    callback(resp);
+  }
+}
+
+void UsersController::uploadAvatar(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  std::string userId;
+  try {
+    userId = req->attributes()->get<std::string>("user_id");
+  } catch (...) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
+    resp->setStatusCode(k401Unauthorized);
+    return callback(resp);
+  }
+
+  drogon::MultiPartParser fileUpload;
+  if (fileUpload.parse(req) != 0 || fileUpload.getFiles().empty()) {
+    auto resp =
+        HttpResponse::newHttpJsonResponse(Json::Value("No file uploaded"));
+    resp->setStatusCode(k400BadRequest);
+    return callback(resp);
+  }
+
+  auto& file = fileUpload.getFiles()[0];
+
+  std::string ext = std::string(file.getFileExtension());
+  if (ext != "jpg" && ext != "jpeg" && ext != "png" && ext != "webp") {
+    auto resp =
+        HttpResponse::newHttpJsonResponse(Json::Value("Invalid file format"));
+    resp->setStatusCode(k400BadRequest);
+    return callback(resp);
+  }
+
+  std::string fileName = drogon::utils::getUuid() + "." + ext;
+
+  file.saveAs("./uploads/avatars/" + fileName);
+
+  std::string avatarUrl = "/uploads/avatars/" + fileName;
+
+  auto dbClient = app().getDbClient();
+  try {
+    drogon::orm::Mapper<AppUser> userMapper(dbClient);
+    AppUser user = userMapper.findByPrimaryKey(userId);
+
+    user.setAvatarUrl(avatarUrl);
+    user.setUpdatedAt(::trantor::Date::now());
+
+    userMapper.update(user);
+
+    Json::Value out;
+    out["message"] = "Avatar uploaded successfully";
+    out["avatar_url"] = avatarUrl;
+
+    auto resp = HttpResponse::newHttpJsonResponse(out);
+    resp->setStatusCode(k200OK);
+    callback(resp);
+
+  } catch (const drogon::orm::UnexpectedRows& e) {
+    auto resp =
+        HttpResponse::newHttpJsonResponse(Json::Value("User not found"));
+    resp->setStatusCode(k404NotFound);
+    callback(resp);
+  } catch (const std::exception& e) {
+    LOG_ERROR << "Avatar upload failed: " << e.what();
     auto resp =
         HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
     resp->setStatusCode(k500InternalServerError);
