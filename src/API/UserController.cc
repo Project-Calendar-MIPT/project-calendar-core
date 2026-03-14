@@ -1,7 +1,11 @@
+#include "UserController.h"
+
 #include <drogon/HttpResponse.h>
 #include <drogon/drogon.h>
 #include <drogon/orm/Mapper.h>
 #include <json/json.h>
+#include <jwt-cpp/jwt.h>
+#include <bcrypt.h>
 #include <trantor/utils/Logger.h>
 
 #include <any>
@@ -11,7 +15,6 @@
 
 #include "../models/AppUser.h"
 #include "../models/UserWorkSchedule.h"
-#include "UserController.h"
 
 using namespace drogon;
 using drogon_model::project_calendar::AppUser;
@@ -20,6 +23,42 @@ using drogon_model::project_calendar::UserWorkSchedule;
 static bool isValidTime(const std::string& t) {
   static const std::regex re("^([01]\\d|2[0-3]):([0-5]\\d)$");
   return std::regex_match(t, re);
+}
+
+static bool isValidEmail(const std::string& email, std::string& errMsg) {
+  const std::regex emailRegex(
+      R"(^[a-zA-Z0-9_.+-]+@([a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)$)");
+  std::smatch emailMatch;
+
+  if (!std::regex_match(email, emailMatch, emailRegex)) {
+    errMsg = "Invalid email format";
+    return false;
+  }
+
+  std::string domain = emailMatch[1].str();
+  std::unordered_set<std::string> allowedDomains = {
+      "gmail.com", "yandex.ru", "mail.ru", "vk.com", "ya.ru", "phystech.edu"};
+
+  if (allowedDomains.find(domain) == allowedDomains.end()) {
+    errMsg = "Email domain is not allowed";
+    return false;
+  }
+  return true;
+}
+
+static bool isStrongPassword(const std::string& password, std::string& errMsg) {
+  if (password.size() < 8) {
+    errMsg = "Password must be at least 8 characters long";
+    return false;
+  }
+  bool hasDigit = std::any_of(password.begin(), password.end(), ::isdigit);
+  bool hasSpecial = std::any_of(password.begin(), password.end(), ::ispunct);
+  if (!hasDigit || !hasSpecial) {
+    errMsg =
+        "Password must contain at least one digit and one special character";
+    return false;
+  }
+  return true;
 }
 
 static std::string getPathVariableCompat(const HttpRequestPtr& req,
@@ -37,6 +76,15 @@ static std::string getPathVariableCompat(const HttpRequestPtr& req,
   else
     ++start;
   return p.substr(start, pos - start + 1);
+}
+
+static void sendEmailChangeLog(const std::string& email, const std::string& token) {
+  std::string confirmUrl = "http://localhost:8080/api/users/email/confirm?token=" + token;
+  LOG_INFO << "=================================================";
+  LOG_INFO << "ИМИТАЦИЯ ОТПРАВКИ EMAIL (СМЕНА ПОЧТЫ):";
+  LOG_INFO << "Кому: " << email;
+  LOG_INFO << "Ссылка для подтверждения: " << confirmUrl;
+  LOG_INFO << "=================================================";
 }
 
 void UsersController::setWorkSchedule(
@@ -620,6 +668,183 @@ void UsersController::uploadAvatar(
     auto resp =
         HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
     resp->setStatusCode(k500InternalServerError);
+    callback(resp);
+  }
+}
+
+void UsersController::changePassword(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  std::string userId;
+  try {
+    userId = req->attributes()->get<std::string>("user_id");
+  } catch (...) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
+    resp->setStatusCode(k401Unauthorized);
+    return callback(resp);
+  }
+
+  auto jsonPtr = req->getJsonObject();
+  if (!jsonPtr || !jsonPtr->isObject() || !jsonPtr->isMember("old_password") ||
+      !jsonPtr->isMember("new_password")) {
+    auto resp = HttpResponse::newHttpJsonResponse(
+        Json::Value("Missing old_password or new_password"));
+    resp->setStatusCode(k400BadRequest);
+    return callback(resp);
+  }
+
+  std::string oldPassword = (*jsonPtr)["old_password"].asString();
+  std::string newPassword = (*jsonPtr)["new_password"].asString();
+
+  std::string errMsg;
+  if (!isStrongPassword(newPassword, errMsg)) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value(errMsg));
+    resp->setStatusCode(k400BadRequest);
+    return callback(resp);
+  }
+
+  auto dbClient = app().getDbClient();
+  try {
+    drogon::orm::Mapper<AppUser> userMapper(dbClient);
+    AppUser user = userMapper.findByPrimaryKey(userId);
+
+    if (!bcrypt::validatePassword(oldPassword, user.getValueOfPasswordHash())) {
+      auto resp = HttpResponse::newHttpJsonResponse(
+          Json::Value("Incorrect old password"));
+      resp->setStatusCode(k403Forbidden);
+      return callback(resp);
+    }
+
+    std::string newHash = bcrypt::generateHash(newPassword);
+    user.setPasswordHash(newHash);
+    user.setUpdatedAt(::trantor::Date::now());
+
+    userMapper.update(user);
+
+    auto resp = HttpResponse::newHttpJsonResponse(
+        Json::Value("Password updated successfully"));
+    resp->setStatusCode(k200OK);
+    callback(resp);
+
+  } catch (const std::exception& e) {
+    LOG_ERROR << "changePassword failed: " << e.what();
+    auto resp =
+        HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
+    resp->setStatusCode(k500InternalServerError);
+    callback(resp);
+  }
+}
+
+void UsersController::requestEmailChange(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  std::string userId;
+  try {
+    userId = req->attributes()->get<std::string>("user_id");
+  } catch (...) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
+    resp->setStatusCode(k401Unauthorized);
+    return callback(resp);
+  }
+
+  auto jsonPtr = req->getJsonObject();
+  if (!jsonPtr || !jsonPtr->isMember("new_email")) {
+    auto resp =
+        HttpResponse::newHttpJsonResponse(Json::Value("Missing new_email"));
+    resp->setStatusCode(k400BadRequest);
+    return callback(resp);
+  }
+
+  std::string newEmail = (*jsonPtr)["new_email"].asString();
+
+  std::string errMsg;
+  if (!isValidEmail(newEmail, errMsg)) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value(errMsg));
+    resp->setStatusCode(k400BadRequest);
+    return callback(resp);
+  }
+
+  auto dbClient = app().getDbClient();
+  try {
+    drogon::orm::Mapper<AppUser> userMapper(dbClient);
+
+    auto criteria = drogon::orm::Criteria(
+        AppUser::Cols::_email, drogon::orm::CompareOperator::EQ, newEmail);
+    if (userMapper.count(criteria) > 0) {
+      auto resp = HttpResponse::newHttpJsonResponse(
+          Json::Value("Email is already taken"));
+      resp->setStatusCode(k409Conflict);
+      return callback(resp);
+    }
+
+    const char* envSecret = std::getenv("JWT_SECRET");
+    const std::string secret = envSecret ? envSecret : "secret_key";
+
+    auto now = std::chrono::system_clock::now();
+    auto token = jwt::create()
+                     .set_issued_at(now)
+                     .set_expires_at(now + std::chrono::hours(1))
+                     .set_type("JWT")
+                     .set_payload_claim("sub", jwt::claim(userId))
+                     .set_payload_claim("new_email", jwt::claim(newEmail))
+                     .sign(jwt::algorithm::hs256{secret});
+
+    sendEmailChangeLog(newEmail, token);
+
+    auto resp = HttpResponse::newHttpJsonResponse(
+        Json::Value("Confirmation link sent to new email"));
+    resp->setStatusCode(k200OK);
+    callback(resp);
+
+  } catch (const std::exception& e) {
+    LOG_ERROR << "requestEmailChange failed: " << e.what();
+    auto resp =
+        HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
+    resp->setStatusCode(k500InternalServerError);
+    callback(resp);
+  }
+}
+
+void UsersController::confirmEmailChange(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  std::string token = req->getParameter("token");
+  if (token.empty()) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Missing token"));
+    resp->setStatusCode(k400BadRequest);
+    return callback(resp);
+  }
+
+  const char* envSecret = std::getenv("JWT_SECRET");
+  const std::string secret = envSecret ? envSecret : "secret_key";
+
+  try {
+    auto decoded = jwt::decode(token);
+    auto verifier =
+        jwt::verify().allow_algorithm(jwt::algorithm::hs256{secret});
+    verifier.verify(decoded);
+
+    std::string userId = decoded.get_payload_claim("sub").as_string();
+    std::string newEmail = decoded.get_payload_claim("new_email").as_string();
+
+    auto dbClient = app().getDbClient();
+    drogon::orm::Mapper<AppUser> userMapper(dbClient);
+    AppUser user = userMapper.findByPrimaryKey(userId);
+
+    user.setEmail(newEmail);
+    user.setUpdatedAt(::trantor::Date::now());
+    userMapper.update(user);
+
+    auto resp = HttpResponse::newHttpJsonResponse(
+        Json::Value("Email successfully updated!"));
+    resp->setStatusCode(k200OK);
+    callback(resp);
+
+  } catch (const std::exception& e) {
+    LOG_ERROR << "confirmEmailChange failed: " << e.what();
+    auto resp = HttpResponse::newHttpJsonResponse(
+        Json::Value("Invalid or expired token"));
+    resp->setStatusCode(k400BadRequest);
     callback(resp);
   }
 }

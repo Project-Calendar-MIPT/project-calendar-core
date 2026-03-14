@@ -13,6 +13,12 @@ class AuthController : public drogon::HttpController<AuthController> {
   ADD_METHOD_TO(AuthController::me, "/api/auth/me", Get, "AuthFilter");
 
   ADD_METHOD_TO(AuthController::confirmEmail, "/api/auth/confirm", Get);
+
+  ADD_METHOD_TO(AuthController::forgotPassword, "/api/auth/forgot-password",
+                Post);
+
+  ADD_METHOD_TO(AuthController::resetPassword, "/api/auth/reset-password",
+                Post);
   METHOD_LIST_END
 
   void registerUser(
@@ -28,4 +34,10 @@ class AuthController : public drogon::HttpController<AuthController> {
   void confirmEmail(
       const drogon::HttpRequestPtr& req,
       std::function<void(const drogon::HttpResponsePtr&)>&& callback);
+
+  void forgotPassword(const HttpRequestPtr& req,
+                      std::function<void(const HttpResponsePtr&)>&& callback);
+
+  void resetPassword(const HttpRequestPtr& req,
+                     std::function<void(const HttpResponsePtr&)>&& callback);
 };

@@ -44,6 +44,52 @@ static void sendLoginEmailLog(const std::string& email,
   LOG_INFO << "=================================================";
 }
 
+static void sendPasswordResetEmailLog(const std::string& email,
+                                      const std::string& token) {
+  std::string resetUrl = "http://localhost:8080/reset-password?token=" + token;
+  LOG_INFO << "=================================================";
+  LOG_INFO << "ИМИТАЦИЯ ОТПРАВКИ EMAIL (СБРОС ПАРОЛЯ):";
+  LOG_INFO << "Кому: " << email;
+  LOG_INFO << "Ссылка для восстановления: " << resetUrl;
+  LOG_INFO << "=================================================";
+}
+
+static bool isValidEmail(const std::string& email, std::string& errMsg) {
+  const std::regex emailRegex(
+      R"(^[a-zA-Z0-9_.+-]+@([a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)$)");
+  std::smatch emailMatch;
+
+  if (!std::regex_match(email, emailMatch, emailRegex)) {
+    errMsg = "Invalid email format";
+    return false;
+  }
+
+  std::string domain = emailMatch[1].str();
+  std::unordered_set<std::string> allowedDomains = {
+      "gmail.com", "yandex.ru", "mail.ru", "vk.com", "ya.ru", "phystech.edu"};
+
+  if (allowedDomains.find(domain) == allowedDomains.end()) {
+    errMsg = "Email domain is not allowed";
+    return false;
+  }
+  return true;
+}
+
+static bool isStrongPassword(const std::string& password, std::string& errMsg) {
+  if (password.size() < 8) {
+    errMsg = "Password must be at least 8 characters long";
+    return false;
+  }
+  bool hasDigit = std::any_of(password.begin(), password.end(), ::isdigit);
+  bool hasSpecial = std::any_of(password.begin(), password.end(), ::ispunct);
+  if (!hasDigit || !hasSpecial) {
+    errMsg =
+        "Password must contain at least one digit and one special character";
+    return false;
+  }
+  return true;
+}
+
 void AuthController::registerUser(
     const HttpRequestPtr& req,
     std::function<void(const HttpResponsePtr&)>&& callback) {
@@ -89,44 +135,17 @@ void AuthController::registerUser(
     skillsJson = j["skills"];
   }
 
-  const std::regex emailRegex(
-      R"(^[a-zA-Z0-9_.+-]+@([a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)$)");
-  std::smatch emailMatch;
-  if (!std::regex_match(email, emailMatch, emailRegex)) {
-    auto resp =
-        HttpResponse::newHttpJsonResponse(Json::Value("Invalid email format"));
+  std::string errMsg;
+  if (!isValidEmail(email, errMsg)) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value(errMsg));
     resp->setStatusCode(k400BadRequest);
-    callback(resp);
-    return;
+    return callback(resp);
   }
 
-  std::string domain = emailMatch[1].str();
-  std::unordered_set<std::string> allowedDomains = {
-      "gmail.com", "yandex.ru", "mail.ru", "vk.com", "ya.ru", "phystech.edu"};
-  if (allowedDomains.find(domain) == allowedDomains.end()) {
-    auto resp = HttpResponse::newHttpJsonResponse(
-        Json::Value("Email domain is not allowed"));
+  if (!isStrongPassword(password, errMsg)) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value(errMsg));
     resp->setStatusCode(k400BadRequest);
-    callback(resp);
-    return;
-  }
-
-  if (password.size() < 8) {
-    auto resp = HttpResponse::newHttpJsonResponse(
-        Json::Value("Password must be at least 8 characters"));
-    resp->setStatusCode(k400BadRequest);
-    callback(resp);
-    return;
-  }
-
-  bool hasDigit = std::any_of(password.begin(), password.end(), ::isdigit);
-  bool hasSpecial = std::any_of(password.begin(), password.end(), ::ispunct);
-  if (!hasDigit || !hasSpecial) {
-    auto resp = HttpResponse::newHttpJsonResponse(Json::Value(
-        "Password must contain at least one digit and one special character"));
-    resp->setStatusCode(k400BadRequest);
-    callback(resp);
-    return;
+    return callback(resp);
   }
 
   if (!workScheduleJson.isArray() || workScheduleJson.size() == 0) {
@@ -514,6 +533,149 @@ void AuthController::confirmEmail(
         auto resp = HttpResponse::newHttpJsonResponse(
             Json::Value("Internal server error"));
         resp->setStatusCode(k500InternalServerError);
+        callbackCopy(resp);
+      });
+}
+
+void AuthController::forgotPassword(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  auto jsonPtr = req->getJsonObject();
+  if (!jsonPtr || !jsonPtr->isObject() || !jsonPtr->isMember("email")) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Missing email"));
+    resp->setStatusCode(k400BadRequest);
+    return callback(resp);
+  }
+
+  std::string email = (*jsonPtr)["email"].asString();
+
+  auto dbClient = app().getDbClient();
+  auto callbackCopy = std::move(callback);
+
+  drogon::orm::Mapper<AppUser> mapper(dbClient);
+  auto criteria = drogon::orm::Criteria(
+      AppUser::Cols::_email, drogon::orm::CompareOperator::EQ, email);
+
+  mapper.findBy(
+      criteria,
+      [callbackCopy, email](const std::vector<AppUser>& users) {
+        if (!users.empty()) {
+          const AppUser& user = users[0];
+
+          const char* envSecret = std::getenv("JWT_SECRET");
+          const std::string secret = envSecret ? envSecret : "secret_key";
+
+          auto now = std::chrono::system_clock::now();
+          auto token =
+              jwt::create()
+                  .set_issued_at(now)
+                  .set_expires_at(now + std::chrono::minutes(15))
+                  .set_type("JWT")
+                  .set_payload_claim("sub", jwt::claim(user.getValueOfId()))
+                  .set_payload_claim("purpose",
+                                     jwt::claim(std::string("password_reset")))
+                  .sign(jwt::algorithm::hs256{secret});
+
+          sendPasswordResetEmailLog(email, token);
+        }
+
+        auto resp = HttpResponse::newHttpJsonResponse(
+            Json::Value("If an account with this email exists, a password "
+                        "reset link has been sent."));
+        resp->setStatusCode(k200OK);
+        callbackCopy(resp);
+      },
+      [callbackCopy](const drogon::orm::DrogonDbException& e) {
+        LOG_ERROR << "forgotPassword DB error: " << e.base().what();
+        auto resp = HttpResponse::newHttpJsonResponse(
+            Json::Value("Internal server error"));
+        resp->setStatusCode(k500InternalServerError);
+        callbackCopy(resp);
+      });
+}
+
+void AuthController::resetPassword(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  auto jsonPtr = req->getJsonObject();
+  if (!jsonPtr || !jsonPtr->isObject() || !jsonPtr->isMember("token") ||
+      !jsonPtr->isMember("new_password")) {
+    auto resp = HttpResponse::newHttpJsonResponse(
+        Json::Value("Missing token or new_password"));
+    resp->setStatusCode(k400BadRequest);
+    return callback(resp);
+  }
+
+  std::string token = (*jsonPtr)["token"].asString();
+  std::string newPassword = (*jsonPtr)["new_password"].asString();
+
+  std::string errMsg;
+  if (!isStrongPassword(newPassword, errMsg)) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value(errMsg));
+    resp->setStatusCode(k400BadRequest);
+    return callback(resp);
+  }
+
+  const char* envSecret = std::getenv("JWT_SECRET");
+  const std::string secret = envSecret ? envSecret : "secret_key";
+
+  std::string userId;
+  try {
+    auto decoded = jwt::decode(token);
+    auto verifier =
+        jwt::verify().allow_algorithm(jwt::algorithm::hs256{secret});
+    verifier.verify(decoded);
+
+    if (!decoded.has_payload_claim("purpose") ||
+        decoded.get_payload_claim("purpose").as_string() != "password_reset") {
+      throw std::runtime_error("Invalid token purpose");
+    }
+
+    userId = decoded.get_payload_claim("sub").as_string();
+
+  } catch (const std::exception& e) {
+    LOG_WARN << "resetPassword token verification failed: " << e.what();
+    auto resp = HttpResponse::newHttpJsonResponse(
+        Json::Value("Invalid or expired token"));
+    resp->setStatusCode(k400BadRequest);
+    return callback(resp);
+  }
+
+  auto dbClient = app().getDbClient();
+  auto callbackCopy = std::move(callback);
+
+  drogon::orm::Mapper<AppUser> mapper(dbClient);
+
+  mapper.findByPrimaryKey(
+      userId,
+      [callbackCopy, newPassword, mapper](AppUser user) mutable {
+        std::string newHash = bcrypt::generateHash(newPassword);
+        user.setPasswordHash(newHash);
+        user.setUpdatedAt(::trantor::Date::now());
+
+        mapper.update(
+            user,
+            [callbackCopy](const size_t count) {
+              auto resp = HttpResponse::newHttpJsonResponse(
+                  Json::Value("Password successfully reset"));
+              resp->setStatusCode(k200OK);
+              callbackCopy(resp);
+            },
+            [callbackCopy](const drogon::orm::DrogonDbException& e) {
+              LOG_ERROR << "Database error updating password: "
+                        << e.base().what();
+              auto resp = HttpResponse::newHttpJsonResponse(
+                  Json::Value("Internal server error"));
+              resp->setStatusCode(k500InternalServerError);
+              callbackCopy(resp);
+            });
+      },
+      [callbackCopy](const drogon::orm::DrogonDbException& e) {
+        LOG_ERROR << "User not found or DB error in resetPassword: "
+                  << e.base().what();
+        auto resp = HttpResponse::newHttpJsonResponse(
+            Json::Value("User not found or database error"));
+        resp->setStatusCode(k400BadRequest);
         callbackCopy(resp);
       });
 }
