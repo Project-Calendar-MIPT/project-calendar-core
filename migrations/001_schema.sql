@@ -30,6 +30,7 @@ CREATE TABLE app_user (
     phone TEXT,
     locale TEXT DEFAULT 'ru-RU',
     password_hash TEXT,
+    avatar_url TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     visibility BOOLEAN NOT NULL DEFAULT false,
