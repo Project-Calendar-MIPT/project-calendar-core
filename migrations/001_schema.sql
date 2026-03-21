@@ -210,8 +210,8 @@ CREATE TABLE user_work_schedule (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
     weekday INT CHECK (weekday >= 0 AND weekday <= 6),
-    start_time TIME NOT NULL,
-    end_time TIME NOT NULL
+    time_slots JSONB DEFAULT '[]'::jsonb,
+    UNIQUE(user_id, day_of_week)
 );
 
 CREATE INDEX idx_user_work_schedule_user_id ON user_work_schedule(user_id);

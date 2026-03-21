@@ -47,8 +47,7 @@ class UserWorkSchedule
         static const std::string _id;
         static const std::string _user_id;
         static const std::string _weekday;
-        static const std::string _start_time;
-        static const std::string _end_time;
+        static const std::string _time_slots;
     };
 
     static const int primaryKeyNumber;
@@ -127,26 +126,18 @@ class UserWorkSchedule
     void setWeekday(const int32_t &pWeekday) noexcept;
     void setWeekdayToNull() noexcept;
 
-    /**  For column start_time  */
-    ///Get the value of the column start_time, returns the default value if the column is null
-    const std::string &getValueOfStartTime() const noexcept;
+    /**  For column time_slots  */
+    ///Get the value of the column time_slots, returns the default value if the column is null
+    const std::string &getValueOfTimeSlots() const noexcept;
     ///Return a shared_ptr object pointing to the column const value, or an empty shared_ptr object if the column is null
-    const std::shared_ptr<std::string> &getStartTime() const noexcept;
-    ///Set the value of the column start_time
-    void setStartTime(const std::string &pStartTime) noexcept;
-    void setStartTime(std::string &&pStartTime) noexcept;
-
-    /**  For column end_time  */
-    ///Get the value of the column end_time, returns the default value if the column is null
-    const std::string &getValueOfEndTime() const noexcept;
-    ///Return a shared_ptr object pointing to the column const value, or an empty shared_ptr object if the column is null
-    const std::shared_ptr<std::string> &getEndTime() const noexcept;
-    ///Set the value of the column end_time
-    void setEndTime(const std::string &pEndTime) noexcept;
-    void setEndTime(std::string &&pEndTime) noexcept;
+    const std::shared_ptr<std::string> &getTimeSlots() const noexcept;
+    ///Set the value of the column time_slots
+    void setTimeSlots(const std::string &pTimeSlots) noexcept;
+    void setTimeSlots(std::string &&pTimeSlots) noexcept;
+    void setTimeSlotsToNull() noexcept;
 
 
-    static size_t getColumnNumber() noexcept {  return 5;  }
+    static size_t getColumnNumber() noexcept {  return 4;  }
     static const std::string &getColumnName(size_t index) noexcept(false);
 
     Json::Value toJson() const;
@@ -171,8 +162,7 @@ class UserWorkSchedule
     std::shared_ptr<std::string> id_;
     std::shared_ptr<std::string> userId_;
     std::shared_ptr<int32_t> weekday_;
-    std::shared_ptr<std::string> startTime_;
-    std::shared_ptr<std::string> endTime_;
+    std::shared_ptr<std::string> timeSlots_;
     struct MetaData
     {
         const std::string colName_;
@@ -184,7 +174,7 @@ class UserWorkSchedule
         const bool notNull_;
     };
     static const std::vector<MetaData> metaData_;
-    bool dirtyFlag_[5]={ false };
+    bool dirtyFlag_[4]={ false };
   public:
     static const std::string &sqlForFindingByPrimaryKey()
     {
@@ -218,15 +208,11 @@ class UserWorkSchedule
             sql += "weekday,";
             ++parametersCount;
         }
-        if(dirtyFlag_[3])
+        sql += "time_slots,";
+        ++parametersCount;
+        if(!dirtyFlag_[3])
         {
-            sql += "start_time,";
-            ++parametersCount;
-        }
-        if(dirtyFlag_[4])
-        {
-            sql += "end_time,";
-            ++parametersCount;
+            needSelection=true;
         }
         if(parametersCount > 0)
         {
@@ -263,10 +249,9 @@ class UserWorkSchedule
             n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
             sql.append(placeholderStr, n);
         }
-        if(dirtyFlag_[4])
+        else
         {
-            n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
-            sql.append(placeholderStr, n);
+            sql +="default,";
         }
         if(parametersCount > 0)
         {

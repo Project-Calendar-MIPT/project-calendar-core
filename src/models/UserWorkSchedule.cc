@@ -16,8 +16,7 @@ using namespace drogon_model::project_calendar;
 const std::string UserWorkSchedule::Cols::_id = "\"id\"";
 const std::string UserWorkSchedule::Cols::_user_id = "\"user_id\"";
 const std::string UserWorkSchedule::Cols::_weekday = "\"weekday\"";
-const std::string UserWorkSchedule::Cols::_start_time = "\"start_time\"";
-const std::string UserWorkSchedule::Cols::_end_time = "\"end_time\"";
+const std::string UserWorkSchedule::Cols::_time_slots = "\"time_slots\"";
 const std::string UserWorkSchedule::primaryKeyName = "id";
 const bool UserWorkSchedule::hasPrimaryKey = true;
 const std::string UserWorkSchedule::tableName = "\"user_work_schedule\"";
@@ -26,8 +25,7 @@ const std::vector<typename UserWorkSchedule::MetaData> UserWorkSchedule::metaDat
 {"id","std::string","uuid",0,0,1,1},
 {"user_id","std::string","uuid",0,0,0,1},
 {"weekday","int32_t","integer",4,0,0,0},
-{"start_time","std::string","time without time zone",0,0,0,1},
-{"end_time","std::string","time without time zone",0,0,0,1}
+{"time_slots","std::string","jsonb",0,0,0,0}
 };
 const std::string &UserWorkSchedule::getColumnName(size_t index) noexcept(false)
 {
@@ -50,19 +48,15 @@ UserWorkSchedule::UserWorkSchedule(const Row &r, const ssize_t indexOffset) noex
         {
             weekday_=std::make_shared<int32_t>(r["weekday"].as<int32_t>());
         }
-        if(!r["start_time"].isNull())
+        if(!r["time_slots"].isNull())
         {
-            startTime_=std::make_shared<std::string>(r["start_time"].as<std::string>());
-        }
-        if(!r["end_time"].isNull())
-        {
-            endTime_=std::make_shared<std::string>(r["end_time"].as<std::string>());
+            timeSlots_=std::make_shared<std::string>(r["time_slots"].as<std::string>());
         }
     }
     else
     {
         size_t offset = (size_t)indexOffset;
-        if(offset + 5 > r.size())
+        if(offset + 4 > r.size())
         {
             LOG_FATAL << "Invalid SQL result for this model";
             return;
@@ -86,12 +80,7 @@ UserWorkSchedule::UserWorkSchedule(const Row &r, const ssize_t indexOffset) noex
         index = offset + 3;
         if(!r[index].isNull())
         {
-            startTime_=std::make_shared<std::string>(r[index].as<std::string>());
-        }
-        index = offset + 4;
-        if(!r[index].isNull())
-        {
-            endTime_=std::make_shared<std::string>(r[index].as<std::string>());
+            timeSlots_=std::make_shared<std::string>(r[index].as<std::string>());
         }
     }
 
@@ -99,7 +88,7 @@ UserWorkSchedule::UserWorkSchedule(const Row &r, const ssize_t indexOffset) noex
 
 UserWorkSchedule::UserWorkSchedule(const Json::Value &pJson, const std::vector<std::string> &pMasqueradingVector) noexcept(false)
 {
-    if(pMasqueradingVector.size() != 5)
+    if(pMasqueradingVector.size() != 4)
     {
         LOG_ERROR << "Bad masquerading vector";
         return;
@@ -133,15 +122,7 @@ UserWorkSchedule::UserWorkSchedule(const Json::Value &pJson, const std::vector<s
         dirtyFlag_[3] = true;
         if(!pJson[pMasqueradingVector[3]].isNull())
         {
-            startTime_=std::make_shared<std::string>(pJson[pMasqueradingVector[3]].asString());
-        }
-    }
-    if(!pMasqueradingVector[4].empty() && pJson.isMember(pMasqueradingVector[4]))
-    {
-        dirtyFlag_[4] = true;
-        if(!pJson[pMasqueradingVector[4]].isNull())
-        {
-            endTime_=std::make_shared<std::string>(pJson[pMasqueradingVector[4]].asString());
+            timeSlots_=std::make_shared<std::string>(pJson[pMasqueradingVector[3]].asString());
         }
     }
 }
@@ -172,20 +153,12 @@ UserWorkSchedule::UserWorkSchedule(const Json::Value &pJson) noexcept(false)
             weekday_=std::make_shared<int32_t>((int32_t)pJson["weekday"].asInt64());
         }
     }
-    if(pJson.isMember("start_time"))
+    if(pJson.isMember("time_slots"))
     {
         dirtyFlag_[3]=true;
-        if(!pJson["start_time"].isNull())
+        if(!pJson["time_slots"].isNull())
         {
-            startTime_=std::make_shared<std::string>(pJson["start_time"].asString());
-        }
-    }
-    if(pJson.isMember("end_time"))
-    {
-        dirtyFlag_[4]=true;
-        if(!pJson["end_time"].isNull())
-        {
-            endTime_=std::make_shared<std::string>(pJson["end_time"].asString());
+            timeSlots_=std::make_shared<std::string>(pJson["time_slots"].asString());
         }
     }
 }
@@ -193,7 +166,7 @@ UserWorkSchedule::UserWorkSchedule(const Json::Value &pJson) noexcept(false)
 void UserWorkSchedule::updateByMasqueradedJson(const Json::Value &pJson,
                                             const std::vector<std::string> &pMasqueradingVector) noexcept(false)
 {
-    if(pMasqueradingVector.size() != 5)
+    if(pMasqueradingVector.size() != 4)
     {
         LOG_ERROR << "Bad masquerading vector";
         return;
@@ -226,15 +199,7 @@ void UserWorkSchedule::updateByMasqueradedJson(const Json::Value &pJson,
         dirtyFlag_[3] = true;
         if(!pJson[pMasqueradingVector[3]].isNull())
         {
-            startTime_=std::make_shared<std::string>(pJson[pMasqueradingVector[3]].asString());
-        }
-    }
-    if(!pMasqueradingVector[4].empty() && pJson.isMember(pMasqueradingVector[4]))
-    {
-        dirtyFlag_[4] = true;
-        if(!pJson[pMasqueradingVector[4]].isNull())
-        {
-            endTime_=std::make_shared<std::string>(pJson[pMasqueradingVector[4]].asString());
+            timeSlots_=std::make_shared<std::string>(pJson[pMasqueradingVector[3]].asString());
         }
     }
 }
@@ -264,20 +229,12 @@ void UserWorkSchedule::updateByJson(const Json::Value &pJson) noexcept(false)
             weekday_=std::make_shared<int32_t>((int32_t)pJson["weekday"].asInt64());
         }
     }
-    if(pJson.isMember("start_time"))
+    if(pJson.isMember("time_slots"))
     {
         dirtyFlag_[3] = true;
-        if(!pJson["start_time"].isNull())
+        if(!pJson["time_slots"].isNull())
         {
-            startTime_=std::make_shared<std::string>(pJson["start_time"].asString());
-        }
-    }
-    if(pJson.isMember("end_time"))
-    {
-        dirtyFlag_[4] = true;
-        if(!pJson["end_time"].isNull())
-        {
-            endTime_=std::make_shared<std::string>(pJson["end_time"].asString());
+            timeSlots_=std::make_shared<std::string>(pJson["time_slots"].asString());
         }
     }
 }
@@ -353,48 +310,31 @@ void UserWorkSchedule::setWeekdayToNull() noexcept
     dirtyFlag_[2] = true;
 }
 
-const std::string &UserWorkSchedule::getValueOfStartTime() const noexcept
+const std::string &UserWorkSchedule::getValueOfTimeSlots() const noexcept
 {
     static const std::string defaultValue = std::string();
-    if(startTime_)
-        return *startTime_;
+    if(timeSlots_)
+        return *timeSlots_;
     return defaultValue;
 }
-const std::shared_ptr<std::string> &UserWorkSchedule::getStartTime() const noexcept
+const std::shared_ptr<std::string> &UserWorkSchedule::getTimeSlots() const noexcept
 {
-    return startTime_;
+    return timeSlots_;
 }
-void UserWorkSchedule::setStartTime(const std::string &pStartTime) noexcept
+void UserWorkSchedule::setTimeSlots(const std::string &pTimeSlots) noexcept
 {
-    startTime_ = std::make_shared<std::string>(pStartTime);
+    timeSlots_ = std::make_shared<std::string>(pTimeSlots);
     dirtyFlag_[3] = true;
 }
-void UserWorkSchedule::setStartTime(std::string &&pStartTime) noexcept
+void UserWorkSchedule::setTimeSlots(std::string &&pTimeSlots) noexcept
 {
-    startTime_ = std::make_shared<std::string>(std::move(pStartTime));
+    timeSlots_ = std::make_shared<std::string>(std::move(pTimeSlots));
     dirtyFlag_[3] = true;
 }
-
-const std::string &UserWorkSchedule::getValueOfEndTime() const noexcept
+void UserWorkSchedule::setTimeSlotsToNull() noexcept
 {
-    static const std::string defaultValue = std::string();
-    if(endTime_)
-        return *endTime_;
-    return defaultValue;
-}
-const std::shared_ptr<std::string> &UserWorkSchedule::getEndTime() const noexcept
-{
-    return endTime_;
-}
-void UserWorkSchedule::setEndTime(const std::string &pEndTime) noexcept
-{
-    endTime_ = std::make_shared<std::string>(pEndTime);
-    dirtyFlag_[4] = true;
-}
-void UserWorkSchedule::setEndTime(std::string &&pEndTime) noexcept
-{
-    endTime_ = std::make_shared<std::string>(std::move(pEndTime));
-    dirtyFlag_[4] = true;
+    timeSlots_.reset();
+    dirtyFlag_[3] = true;
 }
 
 void UserWorkSchedule::updateId(const uint64_t id)
@@ -407,8 +347,7 @@ const std::vector<std::string> &UserWorkSchedule::insertColumns() noexcept
         "id",
         "user_id",
         "weekday",
-        "start_time",
-        "end_time"
+        "time_slots"
     };
     return inCols;
 }
@@ -450,20 +389,9 @@ void UserWorkSchedule::outputArgs(drogon::orm::internal::SqlBinder &binder) cons
     }
     if(dirtyFlag_[3])
     {
-        if(getStartTime())
+        if(getTimeSlots())
         {
-            binder << getValueOfStartTime();
-        }
-        else
-        {
-            binder << nullptr;
-        }
-    }
-    if(dirtyFlag_[4])
-    {
-        if(getEndTime())
-        {
-            binder << getValueOfEndTime();
+            binder << getValueOfTimeSlots();
         }
         else
         {
@@ -490,10 +418,6 @@ const std::vector<std::string> UserWorkSchedule::updateColumns() const
     if(dirtyFlag_[3])
     {
         ret.push_back(getColumnName(3));
-    }
-    if(dirtyFlag_[4])
-    {
-        ret.push_back(getColumnName(4));
     }
     return ret;
 }
@@ -535,20 +459,9 @@ void UserWorkSchedule::updateArgs(drogon::orm::internal::SqlBinder &binder) cons
     }
     if(dirtyFlag_[3])
     {
-        if(getStartTime())
+        if(getTimeSlots())
         {
-            binder << getValueOfStartTime();
-        }
-        else
-        {
-            binder << nullptr;
-        }
-    }
-    if(dirtyFlag_[4])
-    {
-        if(getEndTime())
-        {
-            binder << getValueOfEndTime();
+            binder << getValueOfTimeSlots();
         }
         else
         {
@@ -583,21 +496,13 @@ Json::Value UserWorkSchedule::toJson() const
     {
         ret["weekday"]=Json::Value();
     }
-    if(getStartTime())
+    if(getTimeSlots())
     {
-        ret["start_time"]=getValueOfStartTime();
+        ret["time_slots"]=getValueOfTimeSlots();
     }
     else
     {
-        ret["start_time"]=Json::Value();
-    }
-    if(getEndTime())
-    {
-        ret["end_time"]=getValueOfEndTime();
-    }
-    else
-    {
-        ret["end_time"]=Json::Value();
+        ret["time_slots"]=Json::Value();
     }
     return ret;
 }
@@ -611,7 +516,7 @@ Json::Value UserWorkSchedule::toMasqueradedJson(
     const std::vector<std::string> &pMasqueradingVector) const
 {
     Json::Value ret;
-    if(pMasqueradingVector.size() == 5)
+    if(pMasqueradingVector.size() == 4)
     {
         if(!pMasqueradingVector[0].empty())
         {
@@ -648,24 +553,13 @@ Json::Value UserWorkSchedule::toMasqueradedJson(
         }
         if(!pMasqueradingVector[3].empty())
         {
-            if(getStartTime())
+            if(getTimeSlots())
             {
-                ret[pMasqueradingVector[3]]=getValueOfStartTime();
+                ret[pMasqueradingVector[3]]=getValueOfTimeSlots();
             }
             else
             {
                 ret[pMasqueradingVector[3]]=Json::Value();
-            }
-        }
-        if(!pMasqueradingVector[4].empty())
-        {
-            if(getEndTime())
-            {
-                ret[pMasqueradingVector[4]]=getValueOfEndTime();
-            }
-            else
-            {
-                ret[pMasqueradingVector[4]]=Json::Value();
             }
         }
         return ret;
@@ -695,21 +589,13 @@ Json::Value UserWorkSchedule::toMasqueradedJson(
     {
         ret["weekday"]=Json::Value();
     }
-    if(getStartTime())
+    if(getTimeSlots())
     {
-        ret["start_time"]=getValueOfStartTime();
+        ret["time_slots"]=getValueOfTimeSlots();
     }
     else
     {
-        ret["start_time"]=Json::Value();
-    }
-    if(getEndTime())
-    {
-        ret["end_time"]=getValueOfEndTime();
-    }
-    else
-    {
-        ret["end_time"]=Json::Value();
+        ret["time_slots"]=Json::Value();
     }
     return ret;
 }
@@ -736,25 +622,10 @@ bool UserWorkSchedule::validateJsonForCreation(const Json::Value &pJson, std::st
         if(!validJsonOfField(2, "weekday", pJson["weekday"], err, true))
             return false;
     }
-    if(pJson.isMember("start_time"))
+    if(pJson.isMember("time_slots"))
     {
-        if(!validJsonOfField(3, "start_time", pJson["start_time"], err, true))
+        if(!validJsonOfField(3, "time_slots", pJson["time_slots"], err, true))
             return false;
-    }
-    else
-    {
-        err="The start_time column cannot be null";
-        return false;
-    }
-    if(pJson.isMember("end_time"))
-    {
-        if(!validJsonOfField(4, "end_time", pJson["end_time"], err, true))
-            return false;
-    }
-    else
-    {
-        err="The end_time column cannot be null";
-        return false;
     }
     return true;
 }
@@ -762,7 +633,7 @@ bool UserWorkSchedule::validateMasqueradedJsonForCreation(const Json::Value &pJs
                                                           const std::vector<std::string> &pMasqueradingVector,
                                                           std::string &err)
 {
-    if(pMasqueradingVector.size() != 5)
+    if(pMasqueradingVector.size() != 4)
     {
         err = "Bad masquerading vector";
         return false;
@@ -804,24 +675,6 @@ bool UserWorkSchedule::validateMasqueradedJsonForCreation(const Json::Value &pJs
               if(!validJsonOfField(3, pMasqueradingVector[3], pJson[pMasqueradingVector[3]], err, true))
                   return false;
           }
-        else
-        {
-            err="The " + pMasqueradingVector[3] + " column cannot be null";
-            return false;
-        }
-      }
-      if(!pMasqueradingVector[4].empty())
-      {
-          if(pJson.isMember(pMasqueradingVector[4]))
-          {
-              if(!validJsonOfField(4, pMasqueradingVector[4], pJson[pMasqueradingVector[4]], err, true))
-                  return false;
-          }
-        else
-        {
-            err="The " + pMasqueradingVector[4] + " column cannot be null";
-            return false;
-        }
       }
     }
     catch(const Json::LogicError &e)
@@ -853,14 +706,9 @@ bool UserWorkSchedule::validateJsonForUpdate(const Json::Value &pJson, std::stri
         if(!validJsonOfField(2, "weekday", pJson["weekday"], err, false))
             return false;
     }
-    if(pJson.isMember("start_time"))
+    if(pJson.isMember("time_slots"))
     {
-        if(!validJsonOfField(3, "start_time", pJson["start_time"], err, false))
-            return false;
-    }
-    if(pJson.isMember("end_time"))
-    {
-        if(!validJsonOfField(4, "end_time", pJson["end_time"], err, false))
+        if(!validJsonOfField(3, "time_slots", pJson["time_slots"], err, false))
             return false;
     }
     return true;
@@ -869,7 +717,7 @@ bool UserWorkSchedule::validateMasqueradedJsonForUpdate(const Json::Value &pJson
                                                         const std::vector<std::string> &pMasqueradingVector,
                                                         std::string &err)
 {
-    if(pMasqueradingVector.size() != 5)
+    if(pMasqueradingVector.size() != 4)
     {
         err = "Bad masquerading vector";
         return false;
@@ -898,11 +746,6 @@ bool UserWorkSchedule::validateMasqueradedJsonForUpdate(const Json::Value &pJson
       if(!pMasqueradingVector[3].empty() && pJson.isMember(pMasqueradingVector[3]))
       {
           if(!validJsonOfField(3, pMasqueradingVector[3], pJson[pMasqueradingVector[3]], err, false))
-              return false;
-      }
-      if(!pMasqueradingVector[4].empty() && pJson.isMember(pMasqueradingVector[4]))
-      {
-          if(!validJsonOfField(4, pMasqueradingVector[4], pJson[pMasqueradingVector[4]], err, false))
               return false;
       }
     }
@@ -959,20 +802,7 @@ bool UserWorkSchedule::validJsonOfField(size_t index,
         case 3:
             if(pJson.isNull())
             {
-                err="The " + fieldName + " column cannot be null";
-                return false;
-            }
-            if(!pJson.isString())
-            {
-                err="Type error in the "+fieldName+" field";
-                return false;
-            }
-            break;
-        case 4:
-            if(pJson.isNull())
-            {
-                err="The " + fieldName + " column cannot be null";
-                return false;
+                return true;
             }
             if(!pJson.isString())
             {
