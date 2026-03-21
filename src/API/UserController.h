@@ -7,11 +7,11 @@ using namespace drogon;
 class UsersController : public drogon::HttpController<UsersController> {
  public:
   METHOD_LIST_BEGIN
-  ADD_METHOD_TO(UsersController::setWorkSchedule,
-                "/api/users/{id}/work-schedule", Post, "AuthFilter");
+  ADD_METHOD_TO(UsersController::updateSchedule, "/api/users/schedule", Put,
+                "AuthFilter");
 
-  ADD_METHOD_TO(UsersController::getWorkSchedule,
-                "/api/users/{id}/work-schedule", Get);
+  ADD_METHOD_TO(UsersController::getSchedule, "/api/users/schedule", Get,
+                "AuthFilter");
 
   ADD_METHOD_TO(UsersController::searchUsers, "/api/users", Get);
 
@@ -32,6 +32,12 @@ class UsersController : public drogon::HttpController<UsersController> {
   ADD_METHOD_TO(UsersController::confirmEmailChange, "/api/users/email/confirm",
                 Get);
   METHOD_LIST_END
+
+  void updateSchedule(const HttpRequestPtr& req,
+                      std::function<void(const HttpResponsePtr&)>&& callback);
+
+  void getSchedule(const HttpRequestPtr& req,
+                   std::function<void(const HttpResponsePtr&)>&& callback);
 
   void setWorkSchedule(const HttpRequestPtr& req,
                        std::function<void(const HttpResponsePtr&)>&& callback);
@@ -54,7 +60,7 @@ class UsersController : public drogon::HttpController<UsersController> {
 
   void changePassword(const HttpRequestPtr& req,
                       std::function<void(const HttpResponsePtr&)>&& callback);
-                      
+
   void requestEmailChange(
       const HttpRequestPtr& req,
       std::function<void(const HttpResponsePtr&)>&& callback);

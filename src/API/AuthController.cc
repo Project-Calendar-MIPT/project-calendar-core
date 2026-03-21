@@ -148,12 +148,32 @@ void AuthController::registerUser(
     return callback(resp);
   }
 
-  if (!workScheduleJson.isArray() || workScheduleJson.size() == 0) {
+  if (!workScheduleJson.isArray() || workScheduleJson.size() != 7) {
     auto resp = HttpResponse::newHttpJsonResponse(
-        Json::Value("work_schedule must be a non-empty array"));
+        Json::Value("work_schedule must be an array of exactly 7 items"));
     resp->setStatusCode(k400BadRequest);
     callback(resp);
     return;
+  }
+
+  for (Json::UInt i = 0; i < workScheduleJson.size(); ++i) {
+    const Json::Value& item = workScheduleJson[i];
+    if (!item.isObject() || !item.isMember("day_of_week") ||
+        !item.isMember("time_slots")) {
+      auto resp = HttpResponse::newHttpJsonResponse(
+          Json::Value("Each work_schedule item must contain 'day_of_week' and "
+                      "'time_slots'"));
+      resp->setStatusCode(k400BadRequest);
+      callback(resp);
+      return;
+    }
+    if (!item["time_slots"].isArray()) {
+      auto resp = HttpResponse::newHttpJsonResponse(
+          Json::Value("'time_slots' must be an array"));
+      resp->setStatusCode(k400BadRequest);
+      callback(resp);
+      return;
+    }
   }
 
   auto dbClient = app().getDbClient();
@@ -208,24 +228,15 @@ void AuthController::registerUser(
     std::string createdUserId = user.getValueOfId();
 
     for (Json::UInt i = 0; i < workScheduleJson.size(); ++i) {
-      const Json::Value item = workScheduleJson[i];
-
-      if (!item.isObject() || !item.isMember("weekday") ||
-          !item.isMember("start_time") || !item.isMember("end_time")) {
-        trans->rollback();
-
-        auto resp = HttpResponse::newHttpJsonResponse(
-            Json::Value("Invalid work_schedule item"));
-        resp->setStatusCode(k400BadRequest);
-        callback(resp);
-        return;
-      }
+      const Json::Value& item = workScheduleJson[i];
 
       UserWorkSchedule ws;
       ws.setUserId(createdUserId);
-      ws.setWeekday(static_cast<int32_t>(item["weekday"].asInt()));
-      ws.setStartTime(item["start_time"].asString());
-      ws.setEndTime(item["end_time"].asString());
+      ws.setWeekday(static_cast<int32_t>(item["day_of_week"].asInt()));
+
+      std::string slotsStr = writer.write(item["time_slots"]);
+      ws.setTimeSlots(slotsStr);
+
       transWsMapper.insert(ws);
     }
 

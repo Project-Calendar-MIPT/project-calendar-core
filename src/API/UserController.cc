@@ -1,11 +1,11 @@
 #include "UserController.h"
 
+#include <bcrypt.h>
 #include <drogon/HttpResponse.h>
 #include <drogon/drogon.h>
 #include <drogon/orm/Mapper.h>
 #include <json/json.h>
 #include <jwt-cpp/jwt.h>
-#include <bcrypt.h>
 #include <trantor/utils/Logger.h>
 
 #include <any>
@@ -78,8 +78,10 @@ static std::string getPathVariableCompat(const HttpRequestPtr& req,
   return p.substr(start, pos - start + 1);
 }
 
-static void sendEmailChangeLog(const std::string& email, const std::string& token) {
-  std::string confirmUrl = "http://localhost:8080/api/users/email/confirm?token=" + token;
+static void sendEmailChangeLog(const std::string& email,
+                               const std::string& token) {
+  std::string confirmUrl =
+      "http://localhost:8080/api/users/email/confirm?token=" + token;
   LOG_INFO << "=================================================";
   LOG_INFO << "ИМИТАЦИЯ ОТПРАВКИ EMAIL (СМЕНА ПОЧТЫ):";
   LOG_INFO << "Кому: " << email;
@@ -87,277 +89,156 @@ static void sendEmailChangeLog(const std::string& email, const std::string& toke
   LOG_INFO << "=================================================";
 }
 
-void UsersController::setWorkSchedule(
+void UsersController::getSchedule(
     const HttpRequestPtr& req,
     std::function<void(const HttpResponsePtr&)>&& callback) {
-  auto attrsPtr = req->attributes();
-  if (!attrsPtr || !attrsPtr->find("user_id")) {
+  std::string userId;
+  try {
+    userId = req->attributes()->get<std::string>("user_id");
+  } catch (...) {
     auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
     resp->setStatusCode(k401Unauthorized);
-    callback(resp);
-    return;
-  }
-  const std::string requesterId = attrsPtr->get<std::string>("user_id");
-  if (requesterId.empty()) {
-    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
-    resp->setStatusCode(k401Unauthorized);
-    callback(resp);
-    return;
+    return callback(resp);
   }
 
-  const std::string userId = getPathVariableCompat(req, "id");
-  if (userId.empty()) {
-    auto resp = HttpResponse::newHttpJsonResponse(
-        Json::Value("Missing user id in path"));
-    resp->setStatusCode(k400BadRequest);
+  auto dbClient = app().getDbClient();
+  try {
+    drogon::orm::Mapper<drogon_model::project_calendar::UserWorkSchedule>
+        wsMapper(dbClient);
+
+    wsMapper.orderBy(
+        drogon_model::project_calendar::UserWorkSchedule::Cols::_weekday,
+        drogon::orm::SortOrder::ASC);
+
+    auto schedules = wsMapper.findBy(drogon::orm::Criteria(
+        drogon_model::project_calendar::UserWorkSchedule::Cols::_user_id,
+        drogon::orm::CompareOperator::EQ, userId));
+
+    Json::Value outArr(Json::arrayValue);
+    Json::Reader reader;
+
+    for (const auto& ws : schedules) {
+      Json::Value item;
+      item["day_of_week"] = ws.getValueOfWeekday();
+
+      std::string slotsStr = ws.getValueOfTimeSlots();
+      Json::Value slotsJson;
+      if (reader.parse(slotsStr, slotsJson)) {
+        item["time_slots"] = slotsJson;
+      } else {
+        item["time_slots"] = Json::arrayValue;
+      }
+
+      outArr.append(item);
+    }
+
+    auto resp = HttpResponse::newHttpJsonResponse(outArr);
+    resp->setStatusCode(k200OK);
     callback(resp);
-    return;
+
+  } catch (const std::exception& e) {
+    LOG_ERROR << "getSchedule failed for user " << userId << ": " << e.what();
+    auto resp =
+        HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
+    resp->setStatusCode(k500InternalServerError);
+    callback(resp);
   }
-  if (requesterId != userId) {
-    auto resp = HttpResponse::newHttpJsonResponse(
-        Json::Value("Forbidden: cannot set schedule for another user"));
-    resp->setStatusCode(k403Forbidden);
-    callback(resp);
-    return;
+}
+
+void UsersController::updateSchedule(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  std::string userId;
+  try {
+    userId = req->attributes()->get<std::string>("user_id");
+  } catch (...) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
+    resp->setStatusCode(k401Unauthorized);
+    return callback(resp);
   }
 
   auto pj = req->getJsonObject();
-  if (!pj || !pj->isArray()) {
+  if (!pj || !pj->isArray() || pj->size() != 7) {
     auto resp = HttpResponse::newHttpJsonResponse(
-        Json::Value("Invalid JSON: expected array of 7 items"));
+        Json::Value("Invalid JSON: expected array of exactly 7 items"));
     resp->setStatusCode(k400BadRequest);
-    callback(resp);
-    return;
-  }
-  const Json::Value& arr = *pj;
-  if (arr.size() != 7) {
-    auto resp = HttpResponse::newHttpJsonResponse(
-        Json::Value("Array must contain 7 elements (one per weekday)"));
-    resp->setStatusCode(k400BadRequest);
-    callback(resp);
-    return;
+    return callback(resp);
   }
 
+  const Json::Value& arr = *pj;
   std::set<int> daysSet;
+
   for (Json::UInt i = 0; i < arr.size(); ++i) {
     const Json::Value& el = arr[i];
-    if (!el.isObject()) {
+    if (!el.isObject() || !el.isMember("day_of_week") ||
+        !el.isMember("time_slots")) {
       auto resp = HttpResponse::newHttpJsonResponse(
-          Json::Value("Each array element must be an object"));
+          Json::Value("Each element must have 'day_of_week' and 'time_slots'"));
       resp->setStatusCode(k400BadRequest);
-      callback(resp);
-      return;
-    }
-    if (!el.isMember("day_of_week") || !el["day_of_week"].isInt()) {
-      auto resp = HttpResponse::newHttpJsonResponse(
-          Json::Value("Each element must have integer day_of_week"));
-      resp->setStatusCode(k400BadRequest);
-      callback(resp);
-      return;
+      return callback(resp);
     }
     int dow = el["day_of_week"].asInt();
     if (dow < 1 || dow > 7) {
       auto resp = HttpResponse::newHttpJsonResponse(
           Json::Value("day_of_week must be in range 1..7"));
       resp->setStatusCode(k400BadRequest);
-      callback(resp);
-      return;
+      return callback(resp);
     }
     if (daysSet.find(dow) != daysSet.end()) {
       auto resp = HttpResponse::newHttpJsonResponse(
-          Json::Value("Duplicate day_of_week values are not allowed"));
+          Json::Value("Duplicate day_of_week values"));
       resp->setStatusCode(k400BadRequest);
-      callback(resp);
-      return;
+      return callback(resp);
     }
     daysSet.insert(dow);
 
-    if (!el.isMember("is_working_day") || !el["is_working_day"].isBool()) {
+    if (!el["time_slots"].isArray()) {
       auto resp = HttpResponse::newHttpJsonResponse(
-          Json::Value("Each element must have boolean is_working_day"));
+          Json::Value("time_slots must be an array"));
       resp->setStatusCode(k400BadRequest);
-      callback(resp);
-      return;
-    }
-    bool isWorking = el["is_working_day"].asBool();
-    if (isWorking) {
-      if (!el.isMember("start_time") || !el.isMember("end_time") ||
-          !el["start_time"].isString() || !el["end_time"].isString()) {
-        auto resp = HttpResponse::newHttpJsonResponse(
-            Json::Value("Working day entries must include start_time and "
-                        "end_time strings"));
-        resp->setStatusCode(k400BadRequest);
-        callback(resp);
-        return;
-      }
-      std::string st = el["start_time"].asString();
-      std::string et = el["end_time"].asString();
-      if (!isValidTime(st) || !isValidTime(et)) {
-        auto resp = HttpResponse::newHttpJsonResponse(
-            Json::Value("start_time and end_time must be in HH:MM format"));
-        resp->setStatusCode(k400BadRequest);
-        callback(resp);
-        return;
-      }
-      if (st >= et) {
-        auto resp = HttpResponse::newHttpJsonResponse(
-            Json::Value("start_time must be earlier than end_time"));
-        resp->setStatusCode(k400BadRequest);
-        callback(resp);
-        return;
-      }
-    } else {
-      if (el.isMember("start_time") && !el["start_time"].isNull()) {
-        auto resp = HttpResponse::newHttpJsonResponse(
-            Json::Value("Non-working day should not include start_time"));
-        resp->setStatusCode(k400BadRequest);
-        callback(resp);
-        return;
-      }
-      if (el.isMember("end_time") && !el["end_time"].isNull()) {
-        auto resp = HttpResponse::newHttpJsonResponse(
-            Json::Value("Non-working day should not include end_time"));
-        resp->setStatusCode(k400BadRequest);
-        callback(resp);
-        return;
-      }
+      return callback(resp);
     }
   }
 
   auto dbClient = app().getDbClient();
   try {
-    dbClient->execSqlSync("BEGIN");
-    dbClient->execSqlSync("DELETE FROM user_work_schedule WHERE user_id = $1",
-                          userId);
+    auto trans = dbClient->newTransaction();
 
     drogon::orm::Mapper<drogon_model::project_calendar::UserWorkSchedule>
-        wsMapper(dbClient);
+        transWsMapper(trans);
+
+    transWsMapper.deleteBy(drogon::orm::Criteria(
+        drogon_model::project_calendar::UserWorkSchedule::Cols::_user_id,
+        drogon::orm::CompareOperator::EQ, userId));
+
+    Json::FastWriter writer;
     Json::Value createdArr(Json::arrayValue);
 
     for (Json::UInt i = 0; i < arr.size(); ++i) {
       const Json::Value& el = arr[i];
-      int dow = el["day_of_week"].asInt();
-      bool isWorking = el["is_working_day"].asBool();
 
       drogon_model::project_calendar::UserWorkSchedule ws;
       ws.setUserId(userId);
-      ws.setWeekday(static_cast<int32_t>(dow));
-      if (isWorking) {
-        ws.setStartTime(el["start_time"].asString());
-        ws.setEndTime(el["end_time"].asString());
-      }
+      ws.setWeekday(static_cast<int32_t>(el["day_of_week"].asInt()));
 
-      try {
-        wsMapper.insert(ws);
-      } catch (const std::exception& insertEx) {
-        LOG_ERROR << "UserWorkSchedule insert failed for user " << userId
-                  << ": " << insertEx.what();
-        try {
-          dbClient->execSqlSync("ROLLBACK");
-        } catch (...) {
-        }
-        auto resp = HttpResponse::newHttpJsonResponse(
-            Json::Value("Internal server error"));
-        resp->setStatusCode(k500InternalServerError);
-        callback(resp);
-        return;
-      }
+      std::string slotsStr = writer.write(el["time_slots"]);
+      ws.setTimeSlots(slotsStr);
 
-      Json::Value outItem;
-      outItem["id"] = ws.getId() ? ws.getValueOfId() : Json::Value();
-      outItem["user_id"] = userId;
-      outItem["day_of_week"] = dow;
-      if (isWorking) {
-        outItem["is_working_day"] = true;
-        outItem["start_time"] =
-            ws.getStartTime() ? ws.getValueOfStartTime() : Json::Value();
-        outItem["end_time"] =
-            ws.getEndTime() ? ws.getValueOfEndTime() : Json::Value();
-      } else {
-        outItem["is_working_day"] = false;
-        outItem["start_time"] = Json::Value();
-        outItem["end_time"] = Json::Value();
-      }
-      createdArr.append(outItem);
+      transWsMapper.insert(ws);
+      createdArr.append(el);
     }
-
-    dbClient->execSqlSync("COMMIT");
 
     auto resp = HttpResponse::newHttpJsonResponse(createdArr);
-    resp->setStatusCode(k201Created);
-    callback(resp);
-    return;
-
-  } catch (const std::exception& e) {
-    LOG_ERROR << "setWorkSchedule failed for user " << userId << ": "
-              << e.what();
-    try {
-      dbClient->execSqlSync("ROLLBACK");
-    } catch (...) {
-    }
-    auto resp =
-        HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
-    resp->setStatusCode(k500InternalServerError);
-    callback(resp);
-    return;
-  }
-}
-
-void UsersController::getWorkSchedule(
-    const HttpRequestPtr& req,
-    std::function<void(const HttpResponsePtr&)>&& callback) {
-  const std::string userId = getPathVariableCompat(req, "id");
-  if (userId.empty()) {
-    auto resp =
-        HttpResponse::newHttpJsonResponse(Json::Value("Missing user id"));
-    resp->setStatusCode(k400BadRequest);
-    callback(resp);
-    return;
-  }
-
-  auto dbClient = app().getDbClient();
-  try {
-    auto res = dbClient->execSqlSync(
-        "SELECT id, user_id, weekday, start_time::text AS start_time, "
-        "end_time::text AS end_time "
-        "FROM user_work_schedule WHERE user_id = $1 ORDER BY weekday ASC",
-        userId);
-
-    Json::Value out(Json::arrayValue);
-    out.resize(res.size());
-    for (size_t i = 0; i < res.size(); ++i) {
-      const auto& row = res[i];
-      Json::Value item;
-      if (!row["id"].isNull())
-        item["id"] = row["id"].as<std::string>();
-      else
-        item["id"] = Json::Value();
-      item["user_id"] = row["user_id"].as<std::string>();
-      item["day_of_week"] = row["weekday"].as<int>();
-      bool hasTimes = !row["start_time"].isNull() && !row["end_time"].isNull();
-      item["is_working_day"] = hasTimes;
-      if (hasTimes) {
-        item["start_time"] = row["start_time"].as<std::string>();
-        item["end_time"] = row["end_time"].as<std::string>();
-      } else {
-        item["start_time"] = Json::Value();
-        item["end_time"] = Json::Value();
-      }
-      out[static_cast<Json::UInt>(i)] = item;
-    }
-
-    auto resp = HttpResponse::newHttpJsonResponse(out);
     resp->setStatusCode(k200OK);
     callback(resp);
-    return;
+
   } catch (const std::exception& e) {
-    LOG_ERROR << "getWorkSchedule failed for user " << userId << ": "
+    LOG_ERROR << "updateSchedule failed for user " << userId << ": "
               << e.what();
     auto resp =
         HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
     resp->setStatusCode(k500InternalServerError);
     callback(resp);
-    return;
   }
 }
 
@@ -544,37 +425,35 @@ void UsersController::updateUserProfile(
     if (j.isMember("work_schedule")) {
       const Json::Value& workScheduleJson = j["work_schedule"];
 
-      if (!workScheduleJson.isArray() || workScheduleJson.size() == 0) {
+      if (!workScheduleJson.isArray() || workScheduleJson.size() != 7) {
+        trans->rollback();
         auto resp = HttpResponse::newHttpJsonResponse(
-            Json::Value("work_schedule must be a non-empty array"));
+            Json::Value("work_schedule must be an array of exactly 7 items"));
         resp->setStatusCode(k400BadRequest);
-        callback(resp);
-        return;
+        return callback(resp);
       }
 
       wsMapper.deleteBy(drogon::orm::Criteria(UserWorkSchedule::Cols::_user_id,
                                               drogon::orm::CompareOperator::EQ,
                                               userId));
 
+      Json::FastWriter writer;
       for (Json::UInt i = 0; i < workScheduleJson.size(); ++i) {
         const Json::Value item = workScheduleJson[i];
 
-        if (!item.isObject() || !item.isMember("weekday") ||
-            !item.isMember("start_time") || !item.isMember("end_time")) {
+        if (!item.isObject() || !item.isMember("day_of_week") ||
+            !item.isMember("time_slots") || !item["time_slots"].isArray()) {
           trans->rollback();
-
           auto resp = HttpResponse::newHttpJsonResponse(
-              Json::Value("Invalid work_schedule item"));
+              Json::Value("Invalid work_schedule item structure"));
           resp->setStatusCode(k400BadRequest);
-          callback(resp);
-          return;
+          return callback(resp);
         }
 
         UserWorkSchedule ws;
         ws.setUserId(userId);
-        ws.setWeekday(static_cast<int32_t>(item["weekday"].asInt()));
-        ws.setStartTime(item["start_time"].asString());
-        ws.setEndTime(item["end_time"].asString());
+        ws.setWeekday(static_cast<int32_t>(item["day_of_week"].asInt()));
+        ws.setTimeSlots(writer.write(item["time_slots"]));
         wsMapper.insert(ws);
       }
     }
