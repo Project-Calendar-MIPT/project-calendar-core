@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 project(project-calendar)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g -O0")
@@ -9,6 +9,8 @@ set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")
 
 # Find required packages
 find_package(Drogon CONFIG REQUIRED)
+find_package(OpenSSL REQUIRED)
+find_library(BCRYPT_LIBRARY NAMES bcrypt PATHS /usr/local/lib /opt/homebrew/lib)
 
 # Collect model source files (.cpp instead of .cc)
 file(GLOB MODEL_SOURCES
@@ -39,8 +41,14 @@ add_executable(${PROJECT_NAME}
 target_link_libraries(${PROJECT_NAME} PRIVATE 
     Drogon::Drogon
     models_lib
-    bcrypt
+    OpenSSL::Crypto
 )
+
+if(BCRYPT_LIBRARY)
+    target_link_libraries(${PROJECT_NAME} PRIVATE ${BCRYPT_LIBRARY})
+else()
+    message(WARNING "bcrypt library not found; local build may fail outside Docker")
+endif()
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/include

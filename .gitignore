@@ -19,6 +19,8 @@ Makefile
 # === Drogon generated files ===
 drogon_ctl_generated/
 *.log
+.cache/
+.clang-format
 
 # === IDE / Editor files ===
 .vscode/
