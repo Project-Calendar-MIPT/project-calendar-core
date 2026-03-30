@@ -1,4 +1,4 @@
-#include "API/AuthFilter.hpp"
+#include "API/AuthFilter.h"
 
 #include <drogon/HttpAppFramework.h>
 #include <drogon/HttpResponse.h>
@@ -7,6 +7,12 @@
 #include <trantor/utils/Logger.h>
 
 using namespace drogon;
+
+static std::string getJwtSecret() {
+  const char* envSecret = std::getenv("JWT_SECRET");
+  return (envSecret && *envSecret) ? std::string(envSecret)
+                                   : std::string("replace_with_real_secret");
+}
 
 void AuthFilter::doFilter(const HttpRequestPtr& req, FilterCallback&& fcb,
                           FilterChainCallback&& fccb) {
@@ -24,14 +30,11 @@ void AuthFilter::doFilter(const HttpRequestPtr& req, FilterCallback&& fcb,
 
   const std::string token = auth.substr(prefix.size());
 
-  const char* envSecret = std::getenv("JWT_SECRET");
-  const std::string secret = envSecret ? envSecret : "replace_with_real_secret";
-
   try {
     auto decoded = jwt::decode(token);
 
     auto verifier =
-        jwt::verify().allow_algorithm(jwt::algorithm::hs256{secret});
+        jwt::verify().allow_algorithm(jwt::algorithm::hs256{getJwtSecret()});
     verifier.verify(decoded);
 
     std::string userId;
@@ -63,7 +66,6 @@ void AuthFilter::doFilter(const HttpRequestPtr& req, FilterCallback&& fcb,
 
     fccb();
     return;
-
   } catch (const jwt::error::token_verification_exception& e) {
     LOG_WARN << "AuthFilter token verification failed: " << e.what();
     Json::Value j;

@@ -1,4 +1,4 @@
-#include "API/CalendarController.hpp"
+#include "API/CalendarController.h"
 
 #include <drogon/HttpRequest.h>
 #include <drogon/HttpResponse.h>

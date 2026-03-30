@@ -4,13 +4,11 @@
 #include <json/json.h>
 #include <trantor/utils/Logger.h>
 
-#include <any>
 #include <regex>
 #include <set>
-#include <vector>
 
-#include "models/UserWorkSchedule.hpp"
-#include "API/UsersController.hpp"
+#include "API/UsersController.h"
+#include "models/UserWorkSchedule.h"
 
 using namespace drogon;
 
@@ -36,6 +34,62 @@ static std::string getPathVariableCompat(const HttpRequestPtr& req,
   return p.substr(start, pos - start + 1);
 }
 
+static std::string extractUserIdFromPath(const HttpRequestPtr& req,
+                                         const std::string& segment) {
+  std::string userId = getPathVariableCompat(req, "id");
+  if (userId.empty() || userId == segment) {
+    const std::string path = req->path();
+    const size_t usersPos = path.find("/users/");
+    if (usersPos != std::string::npos) {
+      const size_t uuidStart = usersPos + 7;
+      const size_t uuidEnd = path.find("/", uuidStart);
+      if (uuidEnd != std::string::npos) {
+        userId = path.substr(uuidStart, uuidEnd - uuidStart);
+      }
+    }
+  }
+  return userId;
+}
+
+static bool fillDefaultWorkloadRange(
+    const std::shared_ptr<drogon::orm::DbClient>& dbClient,
+    std::string& startTs, std::string& endTs, std::string& error) {
+  if (!startTs.empty() && !endTs.empty()) return true;
+  try {
+    auto res = dbClient->execSqlSync(
+        "SELECT now()::timestamptz::text AS start_ts, "
+        "(now() + interval '7 days')::timestamptz::text AS end_ts");
+    if (res.empty()) {
+      error = "Failed to compute default range";
+      return false;
+    }
+    if (startTs.empty() && !res[0]["start_ts"].isNull()) {
+      startTs = res[0]["start_ts"].as<std::string>();
+    }
+    if (endTs.empty() && !res[0]["end_ts"].isNull()) {
+      endTs = res[0]["end_ts"].as<std::string>();
+    }
+    return !startTs.empty() && !endTs.empty();
+  } catch (const std::exception& e) {
+    error = e.what();
+    return false;
+  }
+}
+
+static bool isValidWorkloadRange(
+    const std::shared_ptr<drogon::orm::DbClient>& dbClient,
+    const std::string& startTs, const std::string& endTs, std::string& error) {
+  try {
+    auto res = dbClient->execSqlSync(
+        "SELECT ($1::timestamptz < $2::timestamptz) AS ok", startTs, endTs);
+    if (res.empty() || res[0]["ok"].isNull()) return false;
+    return res[0]["ok"].as<bool>();
+  } catch (const std::exception& e) {
+    error = e.what();
+    return false;
+  }
+}
+
 void UsersController::setWorkSchedule(
     const HttpRequestPtr& req,
     std::function<void(const HttpResponsePtr&)>&& callback) {
@@ -54,7 +108,7 @@ void UsersController::setWorkSchedule(
     return;
   }
 
-  const std::string userId = getPathVariableCompat(req, "id");
+  const std::string userId = extractUserIdFromPath(req, "work-schedule");
   if (userId.empty()) {
     auto resp = HttpResponse::newHttpJsonResponse(
         Json::Value("Missing user id in path"));
@@ -255,7 +309,7 @@ void UsersController::setWorkSchedule(
 void UsersController::getWorkSchedule(
     const HttpRequestPtr& req,
     std::function<void(const HttpResponsePtr&)>&& callback) {
-  const std::string userId = getPathVariableCompat(req, "id");
+  const std::string userId = extractUserIdFromPath(req, "work-schedule");
   if (userId.empty()) {
     auto resp =
         HttpResponse::newHttpJsonResponse(Json::Value("Missing user id"));
@@ -301,6 +355,137 @@ void UsersController::getWorkSchedule(
     return;
   } catch (const std::exception& e) {
     LOG_ERROR << "getWorkSchedule failed for user " << userId << ": "
+              << e.what();
+    auto resp =
+        HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
+    resp->setStatusCode(k500InternalServerError);
+    callback(resp);
+    return;
+  }
+}
+
+void UsersController::getUserWorkload(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  auto attrsPtr = req->attributes();
+  if (!attrsPtr || !attrsPtr->find("user_id")) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
+    resp->setStatusCode(k401Unauthorized);
+    callback(resp);
+    return;
+  }
+  const std::string requesterId = attrsPtr->get<std::string>("user_id");
+  if (requesterId.empty()) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
+    resp->setStatusCode(k401Unauthorized);
+    callback(resp);
+    return;
+  }
+
+  const std::string userId = extractUserIdFromPath(req, "workload");
+  if (userId.empty()) {
+    auto resp = HttpResponse::newHttpJsonResponse(
+        Json::Value("Missing user id in path"));
+    resp->setStatusCode(k400BadRequest);
+    callback(resp);
+    return;
+  }
+
+  if (requesterId != userId) {
+    auto resp = HttpResponse::newHttpJsonResponse(
+        Json::Value("Forbidden: cannot read workload for another user"));
+    resp->setStatusCode(k403Forbidden);
+    callback(resp);
+    return;
+  }
+
+  std::string startTs = req->getParameter("start_ts");
+  std::string endTs = req->getParameter("end_ts");
+
+  auto dbClient = app().getDbClient();
+  try {
+    std::string rangeError;
+    if (!fillDefaultWorkloadRange(dbClient, startTs, endTs, rangeError)) {
+      LOG_ERROR << "getUserWorkload default range failed for user " << userId
+                << ": " << rangeError;
+      auto resp = HttpResponse::newHttpJsonResponse(
+          Json::Value("Internal server error"));
+      resp->setStatusCode(k500InternalServerError);
+      callback(resp);
+      return;
+    }
+
+    if (!isValidWorkloadRange(dbClient, startTs, endTs, rangeError)) {
+      auto resp = HttpResponse::newHttpJsonResponse(
+          Json::Value("Invalid range: start_ts must be earlier than end_ts"));
+      resp->setStatusCode(k400BadRequest);
+      callback(resp);
+      return;
+    }
+
+    auto capRes = dbClient->execSqlSync(
+        R"sql(
+        WITH days AS (
+          SELECT gs::date AS day
+          FROM generate_series($2::timestamptz::date, $3::timestamptz::date, interval '1 day') AS gs
+        ),
+        windows AS (
+          SELECT
+            GREATEST((d.day + ws.start_time)::timestamptz, $2::timestamptz) AS st,
+            LEAST((d.day + ws.end_time)::timestamptz, $3::timestamptz) AS et
+          FROM days d
+          JOIN user_work_schedule ws
+            ON ws.user_id = $1::uuid
+           AND ws.weekday = EXTRACT(ISODOW FROM d.day)::int
+        )
+        SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (et - st)) / 3600.0), 0.0) AS capacity_hours
+        FROM windows
+        WHERE et > st
+      )sql",
+        userId, startTs, endTs);
+
+    auto busyRes = dbClient->execSqlSync(
+        R"sql(
+        SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (LEAST(end_ts, $3::timestamptz)-GREATEST(start_ts, $2::timestamptz)))/3600.0),0.0) AS busy_hours,
+               COUNT(DISTINCT task_id) AS scheduled_tasks
+        FROM task_schedule
+        WHERE user_id=$1::uuid AND start_ts < $3::timestamptz AND end_ts > $2::timestamptz
+      )sql",
+        userId, startTs, endTs);
+
+    const double capacityHours =
+        capRes.empty() || capRes[0]["capacity_hours"].isNull()
+            ? 0.0
+            : capRes[0]["capacity_hours"].as<double>();
+    const double busyHours =
+        busyRes.empty() || busyRes[0]["busy_hours"].isNull()
+            ? 0.0
+            : busyRes[0]["busy_hours"].as<double>();
+    const int scheduledTasks =
+        busyRes.empty() || busyRes[0]["scheduled_tasks"].isNull()
+            ? 0
+            : busyRes[0]["scheduled_tasks"].as<int>();
+    const double availableHours =
+        (capacityHours - busyHours) > 0.0 ? (capacityHours - busyHours) : 0.0;
+    const double loadPercent =
+        capacityHours > 0.0 ? (busyHours / capacityHours) * 100.0 : 0.0;
+
+    Json::Value out;
+    out["user_id"] = userId;
+    out["start_ts"] = startTs;
+    out["end_ts"] = endTs;
+    out["capacity_hours"] = capacityHours;
+    out["busy_hours"] = busyHours;
+    out["available_hours"] = availableHours;
+    out["load_percent"] = loadPercent;
+    out["scheduled_tasks"] = scheduledTasks;
+
+    auto resp = HttpResponse::newHttpJsonResponse(out);
+    resp->setStatusCode(k200OK);
+    callback(resp);
+    return;
+  } catch (const std::exception& e) {
+    LOG_ERROR << "getUserWorkload failed for user " << userId << ": "
               << e.what();
     auto resp =
         HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));

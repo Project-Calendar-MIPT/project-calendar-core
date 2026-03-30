@@ -1,0 +1,1837 @@
+openapi: 3.0.3
+info:
+  title: Project Calendar Backend API
+  version: 1.0.0
+  description: OpenAPI specification for the current backend routes.
+servers:
+  - url: http://localhost:8080
+    description: Local development
+tags:
+  - name: Auth
+  - name: Projects
+  - name: Tasks
+  - name: Assignments
+  - name: Notes
+  - name: Availability
+  - name: Users
+  - name: Calendar
+  - name: Feed
+  - name: Teams
+  - name: Invitations
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ErrorString:
+      type: string
+      example: Internal server error
+    RegisterRequest:
+      type: object
+      required: [email, password, display_name, work_schedule]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        display_name:
+          type: string
+        name:
+          type: string
+        surname:
+          type: string
+        phone:
+          type: string
+        telegram:
+          type: string
+        locale:
+          type: string
+        work_schedule:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/RegisterScheduleItem'
+    RegisterScheduleItem:
+      type: object
+      required: [weekday]
+      properties:
+        weekday:
+          type: integer
+          minimum: 0
+          maximum: 6
+        start_time:
+          type: string
+        end_time:
+          type: string
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+    AuthUser:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        display_name:
+          type: string
+        name:
+          type: string
+        surname:
+          type: string
+    LoginResponse:
+      type: object
+      required: [token, user]
+      properties:
+        token:
+          type: string
+        user:
+          $ref: '#/components/schemas/AuthUser'
+    RegisterResponse:
+      type: object
+      required: [success, token, user, work_schedule]
+      properties:
+        success:
+          type: boolean
+        token:
+          type: string
+        user:
+          $ref: '#/components/schemas/AuthUser'
+        work_schedule:
+          type: array
+          items:
+            type: object
+    TaskBase:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        parent_task_id:
+          type: string
+          format: uuid
+          nullable: true
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        priority:
+          type: string
+          nullable: true
+        status:
+          type: string
+          nullable: true
+        estimated_hours:
+          oneOf:
+            - type: string
+            - type: number
+          nullable: true
+        start_date:
+          type: string
+          format: date
+          nullable: true
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        project_root_id:
+          type: string
+          format: uuid
+          nullable: true
+        created_by:
+          type: string
+          format: uuid
+          nullable: true
+        created_at:
+          type: string
+          nullable: true
+        updated_at:
+          type: string
+          nullable: true
+    TaskCreateRequest:
+      type: object
+      required: [title, description]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        priority:
+          type: string
+        status:
+          type: string
+        estimated_hours:
+          oneOf:
+            - type: number
+            - type: string
+        parent_task_id:
+          type: string
+          format: uuid
+        project_root_id:
+          type: string
+          format: uuid
+        start_date:
+          type: string
+          format: date
+        due_date:
+          type: string
+          format: date
+        assignee_user_id:
+          type: string
+          format: uuid
+    TaskListItem:
+      allOf:
+        - $ref: '#/components/schemas/TaskBase'
+        - type: object
+          properties:
+            has_time:
+              type: boolean
+            assigned_hours:
+              oneOf:
+                - type: string
+                - type: number
+              nullable: true
+            role:
+              type: string
+              nullable: true
+            schedule:
+              type: array
+              items:
+                $ref: '#/components/schemas/TaskScheduleItem'
+    TaskScheduleItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          nullable: true
+        date:
+          type: string
+          nullable: true
+        start_time:
+          type: string
+          nullable: true
+        end_time:
+          type: string
+          nullable: true
+        hours:
+          oneOf:
+            - type: string
+            - type: number
+          nullable: true
+    ProjectVisibility:
+      type: string
+      enum: [public, private]
+    ProjectBase:
+      allOf:
+        - $ref: '#/components/schemas/TaskBase'
+        - type: object
+          properties:
+            visibility:
+              $ref: '#/components/schemas/ProjectVisibility'
+            owner_user_id:
+              type: string
+              format: uuid
+              nullable: true
+    ProjectCreateRequest:
+      type: object
+      required: [title, description]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        priority:
+          type: string
+        status:
+          type: string
+        estimated_hours:
+          oneOf:
+            - type: number
+            - type: string
+        start_date:
+          type: string
+          format: date
+        due_date:
+          type: string
+          format: date
+        visibility:
+          $ref: '#/components/schemas/ProjectVisibility'
+        owner_user_id:
+          type: string
+          format: uuid
+    ProjectProgressResponse:
+      type: object
+      properties:
+        project_id:
+          type: string
+          format: uuid
+        total_tasks:
+          type: integer
+        completed_tasks:
+          type: integer
+        progress_percent:
+          type: number
+    ProjectParticipantItem:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          nullable: true
+        display_name:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        role:
+          type: string
+          nullable: true
+        assigned_hours:
+          oneOf:
+            - type: string
+            - type: number
+          nullable: true
+        assigned_at:
+          type: string
+          nullable: true
+        role_assigned_at:
+          type: string
+          nullable: true
+    AssignmentCreateRequest:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+        assigned_hours:
+          oneOf:
+            - type: string
+            - type: number
+    NoteCreateRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+    NoteItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        content:
+          type: string
+        created_at:
+          type: string
+        updated_at:
+          type: string
+        author_name:
+          type: string
+          nullable: true
+    AvailabilityRequest:
+      type: object
+      required: [user_id, start_ts, end_ts]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        start_ts:
+          type: string
+        end_ts:
+          type: string
+    AvailabilityResponse:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        start_ts:
+          type: string
+        end_ts:
+          type: string
+        capacity_hours:
+          type: number
+        busy_hours:
+          type: number
+        available_hours:
+          type: number
+        load_percent:
+          type: number
+    CandidateAssigneesRequest:
+      type: object
+      properties:
+        required_skills:
+          type: array
+          items:
+            type: string
+        start_ts:
+          type: string
+        end_ts:
+          type: string
+    CandidateItem:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        skill_score:
+          type: number
+        matched_skills:
+          type: integer
+        capacity_hours:
+          type: number
+        busy_hours:
+          type: number
+        available_hours:
+          type: number
+        load_percent:
+          type: number
+        relevance_score:
+          type: number
+    CandidateAssigneesResponse:
+      type: object
+      properties:
+        task_id:
+          type: string
+          format: uuid
+        start_ts:
+          type: string
+        end_ts:
+          type: string
+        candidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/CandidateItem'
+    WorkScheduleSetItem:
+      type: object
+      required: [day_of_week, is_working_day]
+      properties:
+        day_of_week:
+          type: integer
+          minimum: 1
+          maximum: 7
+        is_working_day:
+          type: boolean
+        start_time:
+          type: string
+          nullable: true
+        end_time:
+          type: string
+          nullable: true
+    WorkScheduleGetItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          nullable: true
+        user_id:
+          type: string
+          format: uuid
+        day_of_week:
+          type: integer
+        is_working_day:
+          type: boolean
+        start_time:
+          type: string
+          nullable: true
+        end_time:
+          type: string
+          nullable: true
+    WorkloadResponse:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        start_ts:
+          type: string
+        end_ts:
+          type: string
+        capacity_hours:
+          type: number
+        busy_hours:
+          type: number
+        available_hours:
+          type: number
+        load_percent:
+          type: number
+        scheduled_tasks:
+          type: integer
+    UserSearchItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          nullable: true
+        display_name:
+          type: string
+          nullable: true
+        name:
+          type: string
+          nullable: true
+        surname:
+          type: string
+          nullable: true
+        locale:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          nullable: true
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          nullable: true
+        display_name:
+          type: string
+          nullable: true
+        name:
+          type: string
+          nullable: true
+        surname:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        telegram:
+          type: string
+          nullable: true
+        locale:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          nullable: true
+        updated_at:
+          type: string
+          nullable: true
+    ProjectUpdateRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        priority:
+          type: string
+        status:
+          type: string
+        start_date:
+          type: string
+          format: date
+        due_date:
+          type: string
+          format: date
+        visibility:
+          $ref: '#/components/schemas/ProjectVisibility'
+        wanted_skills:
+          type: array
+          items:
+            type: string
+    InviteRequest:
+      type: object
+      required: [user_id]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+    ApplicationItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        invitee_user_id:
+          type: string
+          format: uuid
+          nullable: true
+        display_name:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        status:
+          type: string
+        kind:
+          type: string
+        created_at:
+          type: string
+    RecommendedProjectItem:
+      allOf:
+        - $ref: '#/components/schemas/ProjectBase'
+        - type: object
+          properties:
+            match_score:
+              type: integer
+            wanted_skills:
+              type: array
+              items:
+                type: string
+    FeedEventItem:
+      type: object
+      properties:
+        event_type:
+          type: string
+          enum: [task_updated, member_joined]
+        object_id:
+          type: string
+          format: uuid
+        object_title:
+          type: string
+          nullable: true
+        detail:
+          type: string
+          nullable: true
+        event_time:
+          type: string
+        project_id:
+          type: string
+          format: uuid
+          nullable: true
+        project_title:
+          type: string
+          nullable: true
+    DeadlineTaskItem:
+      allOf:
+        - $ref: '#/components/schemas/TaskBase'
+        - type: object
+          properties:
+            project_root_id:
+              type: string
+              format: uuid
+              nullable: true
+            project_title:
+              type: string
+              nullable: true
+    TeamBase:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        owner_user_id:
+          type: string
+          format: uuid
+        parent_team_id:
+          type: string
+          format: uuid
+          nullable: true
+        created_at:
+          type: string
+    TeamCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        parent_team_id:
+          type: string
+          format: uuid
+    TeamUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        parent_team_id:
+          type: string
+          format: uuid
+          nullable: true
+    TeamDetail:
+      allOf:
+        - $ref: '#/components/schemas/TeamBase'
+        - type: object
+          properties:
+            members:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  display_name:
+                    type: string
+                    nullable: true
+                  email:
+                    type: string
+                    nullable: true
+    CalendarTaskItem:
+      type: object
+      properties:
+        task_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          nullable: true
+        start_date:
+          type: string
+          nullable: true
+        end_date:
+          type: string
+          nullable: true
+        allocated_hours:
+          oneOf:
+            - type: string
+            - type: number
+          nullable: true
+        role:
+          type: string
+          nullable: true
+        schedule:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                nullable: true
+              start_time:
+                type: string
+                nullable: true
+              end_time:
+                type: string
+                nullable: true
+              hours:
+                oneOf:
+                  - type: string
+                  - type: number
+                nullable: true
+paths:
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      summary: Register new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterResponse'
+        '400':
+          description: Validation error
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      summary: Current user profile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          description: Unauthorized
+  /api/projects:
+    post:
+      tags: [Projects]
+      summary: Create project
+      description: Creates a top-level project with exactly one owner and visibility.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectBase'
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+    get:
+      tags: [Projects]
+      summary: List projects for current user
+      description: Returns public projects and private projects where the caller participates.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: visibility
+          schema:
+            $ref: '#/components/schemas/ProjectVisibility'
+        - in: query
+          name: scope
+          schema:
+            type: string
+            enum: [all, mine, mine_and_teams]
+            default: all
+        - in: query
+          name: limit
+          schema:
+            type: integer
+        - in: query
+          name: offset
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProjectBase'
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+  /api/projects/{project_id}/progress:
+    get:
+      tags: [Projects]
+      summary: Get project progress
+      description: Returns progress as percentage of completed tasks in the project.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectProgressResponse'
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+  /api/projects/{project_id}/participants:
+    get:
+      tags: [Projects]
+      summary: List project participants
+      description: Supports role filtering and sorting by role, display_name, or assigned_at.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: role
+          schema:
+            type: string
+        - in: query
+          name: sort_by
+          schema:
+            type: string
+            enum: [role, display_name, assigned_at]
+        - in: query
+          name: order
+          schema:
+            type: string
+            enum: [asc, desc]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProjectParticipantItem'
+        '400':
+          description: Validation error
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+  /api/tasks:
+    post:
+      tags: [Tasks]
+      summary: Create task
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskBase'
+        '400':
+          description: Validation error
+    get:
+      tags: [Tasks]
+      summary: List tasks for current user
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: parent_task_id
+          schema:
+            type: string
+        - in: query
+          name: status
+          schema:
+            type: string
+        - in: query
+          name: priority
+          schema:
+            type: string
+        - in: query
+          name: has_time
+          schema:
+            type: boolean
+        - in: query
+          name: limit
+          schema:
+            type: integer
+        - in: query
+          name: offset
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TaskListItem'
+        '401':
+          description: Unauthorized
+  /api/tasks/{task_id}:
+    put:
+      tags: [Tasks]
+      summary: Update task
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskBase'
+        '400':
+          description: Validation error
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+    delete:
+      tags: [Tasks]
+      summary: Delete task
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+  /api/tasks/{task_id}/subtasks:
+    get:
+      tags: [Tasks]
+      summary: Get subtasks
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TaskListItem'
+  /api/tasks/{task_id}/assignments:
+    post:
+      tags: [Assignments]
+      summary: Create assignment
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignmentCreateRequest'
+      responses:
+        '201':
+          description: Created
+        '400':
+          description: Validation error
+    get:
+      tags: [Assignments]
+      summary: List assignments
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+  /api/assignments/{assignment_id}:
+    delete:
+      tags: [Assignments]
+      summary: Delete assignment
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: assignment_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+  /api/tasks/{task_id}/notes:
+    post:
+      tags: [Notes]
+      summary: Create note
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoteCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteItem'
+    get:
+      tags: [Notes]
+      summary: Get notes
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NoteItem'
+  /api/notes/{note_id}:
+    put:
+      tags: [Notes]
+      summary: Update note
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: note_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoteCreateRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteItem'
+    delete:
+      tags: [Notes]
+      summary: Delete note
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: note_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+  /api/tasks/availability/calculate:
+    post:
+      tags: [Availability]
+      summary: Calculate availability
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AvailabilityRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AvailabilityResponse'
+        '400':
+          description: Validation error
+  /api/tasks/{task_id}/candidate-assignees:
+    post:
+      tags: [Availability]
+      summary: Get candidate assignees
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CandidateAssigneesRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CandidateAssigneesResponse'
+        '403':
+          description: Forbidden
+  /api/users/{id}/work-schedule:
+    post:
+      tags: [Users]
+      summary: Set work schedule
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/WorkScheduleSetItem'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkScheduleGetItem'
+        '403':
+          description: Forbidden
+    get:
+      tags: [Users]
+      summary: Get work schedule
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkScheduleGetItem'
+  /api/users/{id}/workload:
+    get:
+      tags: [Users]
+      summary: Get own workload
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: start_ts
+          schema:
+            type: string
+        - in: query
+          name: end_ts
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkloadResponse'
+        '403':
+          description: Forbidden
+  /api/users:
+    get:
+      tags: [Users]
+      summary: Search users
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: search
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserSearchItem'
+  /api/users/{id}:
+    get:
+      tags: [Users]
+      summary: Get user profile
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '404':
+          description: Not found
+  /api/calendar/tasks:
+    get:
+      tags: [Calendar]
+      summary: Get calendar tasks
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: start_date
+          required: true
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: end_date
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CalendarTaskItem'
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+  /api/projects/{project_id}:
+    get:
+      tags: [Projects]
+      summary: Get project by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectBase'
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+    put:
+      tags: [Projects]
+      summary: Update project (owner or admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectUpdateRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectBase'
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+    delete:
+      tags: [Projects]
+      summary: Delete project (owner only, cascades all tasks)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+  /api/projects/{project_id}/invite:
+    post:
+      tags: [Invitations]
+      summary: Invite user to project (owner only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InviteRequest'
+      responses:
+        '201':
+          description: Invitation created
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+        '409':
+          description: Already a member
+  /api/projects/{project_id}/apply:
+    post:
+      tags: [Invitations]
+      summary: Apply to join project
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          description: Application submitted
+        '404':
+          description: Not found
+        '409':
+          description: Already applied or member
+  /api/projects/{project_id}/applications:
+    get:
+      tags: [Invitations]
+      summary: List pending applications (owner only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ApplicationItem'
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+  /api/projects/{project_id}/applications/{application_id}/approve:
+    post:
+      tags: [Invitations]
+      summary: Approve application (owner only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: application_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Approved
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+  /api/projects/{project_id}/applications/{application_id}/reject:
+    post:
+      tags: [Invitations]
+      summary: Reject application (owner only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: application_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Rejected
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+  /api/projects/recommended:
+    get:
+      tags: [Feed]
+      summary: Recommended public projects matching user skills
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RecommendedProjectItem'
+  /api/feed:
+    get:
+      tags: [Feed]
+      summary: Activity feed for user's projects
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 20
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FeedEventItem'
+  /api/tasks/deadlines:
+    get:
+      tags: [Feed]
+      summary: Tasks assigned to me due within 7 days
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DeadlineTaskItem'
+  /api/teams:
+    post:
+      tags: [Teams]
+      summary: Create team
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamBase'
+        '400':
+          description: Validation error
+  /api/teams/{team_id}:
+    get:
+      tags: [Teams]
+      summary: Get team details with members
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamDetail'
+        '404':
+          description: Not found
+    put:
+      tags: [Teams]
+      summary: Update team (owner only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamUpdateRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamBase'
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+  /api/teams/{team_id}/members:
+    post:
+      tags: [Teams]
+      summary: Add member to team (owner only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: Added
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+  /api/teams/{team_id}/members/{user_id}:
+    delete:
+      tags: [Teams]
+      summary: Remove member from team
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Removed
+        '400':
+          description: Cannot remove owner
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+  /api/tasks/{task_id}/assign-team:
+    post:
+      tags: [Teams]
+      summary: Assign team to task
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [team_id]
+              properties:
+                team_id:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: Assigned
+        '404':
+          description: Task or team not found
+  /api/projects/{project_id}/assign-team:
+    post:
+      tags: [Teams]
+      summary: Assign team to project
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [team_id]
+              properties:
+                team_id:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: Assigned
+        '404':
+          description: Project or team not found

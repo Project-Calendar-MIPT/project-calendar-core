@@ -1,5 +1,6 @@
-#include "API/AuthController.hpp"
+#include "API/AuthController.h"
 
+#include <bcrypt.h>
 #include <drogon/drogon.h>
 #include <drogon/orm/DbClient.h>
 #include <drogon/orm/Mapper.h>
@@ -9,14 +10,14 @@
 #include <trantor/utils/Logger.h>
 
 #include <algorithm>
-#include <bcrypt.h>
 #include <cctype>
+#include <cstdlib>
 #include <exception>
 #include <functional>
 #include <utility>
 
-#include "models/AppUser.hpp"
-#include "models/UserWorkSchedule.hpp"
+#include "models/AppUser.h"
+#include "models/UserWorkSchedule.h"
 
 using drogon_model::project_calendar::AppUser;
 using drogon_model::project_calendar::UserWorkSchedule;
@@ -30,6 +31,12 @@ static bool containsCaseInsensitive(const std::string& hay,
                                  std::tolower(static_cast<unsigned char>(b));
                         });
   return it != hay.end();
+}
+
+static std::string getJwtSecret() {
+  const char* envSecret = std::getenv("JWT_SECRET");
+  return (envSecret && *envSecret) ? std::string(envSecret)
+                                   : std::string("replace_with_real_secret");
 }
 
 void AuthController::registerUser(
@@ -168,16 +175,14 @@ void AuthController::registerUser(
 
     dbClient->execSqlSync("COMMIT");
 
-    const char* envSecret = std::getenv("JWT_SECRET");
-    const std::string secret = envSecret ? envSecret : "secret_key";
-
-    auto token = jwt::create()
-                     .set_issuer("project-calendar")
-                     .set_type("JWT")
-                     .set_payload_claim("user_id", jwt::claim(createdUserId))
-                     .set_expires_at(std::chrono::system_clock::now() +
-                                     std::chrono::hours{24 * 7})
-                     .sign(jwt::algorithm::hs256{secret});
+    const std::string token =
+        jwt::create()
+            .set_issuer("project-calendar")
+            .set_type("JWT")
+            .set_payload_claim("user_id", jwt::claim(createdUserId))
+            .set_expires_at(std::chrono::system_clock::now() +
+                            std::chrono::hours{24 * 7})
+            .sign(jwt::algorithm::hs256{getJwtSecret()});
 
     Json::Value response;
     response["success"] = true;
@@ -276,14 +281,6 @@ void AuthController::login(
             return;
           }
 
-          const char* envSecret = std::getenv("JWT_SECRET");
-          const std::string secret =
-              envSecret ? envSecret : "replace_with_real_secret";
-
-          using namespace std::chrono;
-          auto now = system_clock::now();
-          auto expires = now + hours(24);
-
           const std::string userId =
               row["id"].isNull() ? std::string() : row["id"].as<std::string>();
           const std::string displayName =
@@ -294,7 +291,11 @@ void AuthController::login(
                                            ? std::string()
                                            : row["email"].as<std::string>();
 
-          auto token =
+          using namespace std::chrono;
+          const auto now = system_clock::now();
+          const auto expires = now + hours(24);
+
+          const std::string token =
               jwt::create()
                   .set_issued_at(now)
                   .set_expires_at(expires)
@@ -303,7 +304,7 @@ void AuthController::login(
                   .set_payload_claim("sub", jwt::claim(userId))
                   .set_payload_claim("display_name", jwt::claim(displayName))
                   .set_payload_claim("email", jwt::claim(emailVal))
-                  .sign(jwt::algorithm::hs256{secret});
+                  .sign(jwt::algorithm::hs256{getJwtSecret()});
 
           Json::Value respJson;
           respJson["token"] = token;
@@ -358,13 +359,10 @@ void AuthController::me(
 
   const std::string token = authHeader.substr(bearerPrefix.size());
 
-  const char* envSecret = std::getenv("JWT_SECRET");
-  const std::string secret = envSecret ? envSecret : "replace_with_real_secret";
-
   try {
     auto decoded = jwt::decode(token);
     auto verifier =
-        jwt::verify().allow_algorithm(jwt::algorithm::hs256{secret});
+        jwt::verify().allow_algorithm(jwt::algorithm::hs256{getJwtSecret()});
     verifier.verify(decoded);
 
     std::string userId;
@@ -432,7 +430,6 @@ void AuthController::me(
         "updated_at::text AS updated_at "
         "FROM app_user WHERE id = $1 LIMIT 1",
         std::move(meResultCb), exceptPtrCb, userId);
-
   } catch (const std::exception& e) {
     LOG_WARN << "me token verification failed: " << e.what();
     auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Invalid token"));

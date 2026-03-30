@@ -13,6 +13,9 @@ class UsersController : public drogon::HttpController<UsersController> {
   ADD_METHOD_TO(UsersController::getWorkSchedule,
                 "/api/users/{id}/work-schedule", Get);
 
+  ADD_METHOD_TO(UsersController::getUserWorkload, "/api/users/{id}/workload",
+                Get, "AuthFilter");
+
   ADD_METHOD_TO(UsersController::searchUsers, "/api/users", Get);
 
   ADD_METHOD_TO(UsersController::getUserProfile, "/api/users/{id}", Get);
@@ -22,6 +25,9 @@ class UsersController : public drogon::HttpController<UsersController> {
                        std::function<void(const HttpResponsePtr&)>&& callback);
 
   void getWorkSchedule(const HttpRequestPtr& req,
+                       std::function<void(const HttpResponsePtr&)>&& callback);
+
+  void getUserWorkload(const HttpRequestPtr& req,
                        std::function<void(const HttpResponsePtr&)>&& callback);
 
   void searchUsers(const HttpRequestPtr& req,
