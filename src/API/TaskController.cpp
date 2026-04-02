@@ -1493,7 +1493,7 @@ void TaskController::createAssignment(
     assUserId = j["user_id"].asString();
   }
 
-  std::string role = "contributor";
+  std::string role = "executor";
   if (j.isMember("role") && j["role"].isString()) role = j["role"].asString();
 
   std::optional<double> assignedHours;
