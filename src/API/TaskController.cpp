@@ -270,12 +270,6 @@ void TaskController::createTask(
           ? j["due_date"].asString()
           : "";
   const bool payloadHasAnyDate = hasAnyDate(payloadStartDate, payloadDueDate);
-  if (payloadHasAnyDate && !assigneeUserId.has_value()) {
-    auto resp = HttpResponse::newHttpJsonResponse(
-        Json::Value("assignee_user_id is required when task has dates"));
-    resp->setStatusCode(k400BadRequest);
-    return callback(resp);
-  }
 
   std::optional<std::string> payloadStatus =
       (j.isMember("status") && j["status"].isString())
@@ -1123,19 +1117,6 @@ void TaskController::updateTask(
 
     const bool hasEffectiveAnyDate =
         hasAnyDate(effectiveStartDate, effectiveDueDate);
-    const bool assigneeProvidedInPayload =
-        j.isMember("assignee_user_id") && !j["assignee_user_id"].isNull();
-    if (hasEffectiveAnyDate && !assigneeProvidedInPayload) {
-      auto assignmentRes = dbClient->execSqlSync(
-          "SELECT 1 FROM \"task_assignment\" WHERE task_id = $1 LIMIT 1",
-          taskId);
-      if (assignmentRes.empty()) {
-        auto resp = HttpResponse::newHttpJsonResponse(
-            Json::Value("assignee_user_id is required when task has dates"));
-        resp->setStatusCode(k400BadRequest);
-        return callback(resp);
-      }
-    }
 
     drogon_model::project_calendar::Task task(res[0], -1);
 
@@ -1493,7 +1474,7 @@ void TaskController::createAssignment(
     assUserId = j["user_id"].asString();
   }
 
-  std::string role = "contributor";
+  std::string role = "executor";
   if (j.isMember("role") && j["role"].isString()) role = j["role"].asString();
 
   std::optional<double> assignedHours;
