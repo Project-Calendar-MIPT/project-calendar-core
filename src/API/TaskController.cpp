@@ -509,7 +509,7 @@ void TaskController::getTasks(
     JOIN "task_assignment" ta ON ta.task_id = t.id
     LEFT JOIN "task_role_assignment" tr ON tr.task_id = t.id AND tr.user_id = ta.user_id
     WHERE ta.user_id = $1::uuid
-      AND ($2 = '' OR ($2 = 'null' AND t.parent_task_id IS NULL) OR t.parent_task_id = $2::uuid)
+      AND (CASE WHEN $2 = '' THEN TRUE WHEN $2 = 'null' THEN t.parent_task_id IS NULL ELSE t.parent_task_id = $2::uuid END)
       AND ($3 = '' OR t.status::text = $3)
       AND ($4 = '' OR t.priority::text = $4)
       AND ($5 = '' OR ($5 = 'true' AND (t.start_date IS NOT NULL OR t.due_date IS NOT NULL)) OR ($5 = 'false' AND t.start_date IS NULL AND t.due_date IS NULL))
