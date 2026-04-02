@@ -32,7 +32,7 @@ int main() {
     database,      // databaseName
     user,          // userName
     password,      // password
-    1,             // connectionNum
+    5,             // connectionNum
     "",            // filename (empty for postgres)
     "default",     // name
     false,         // isFast
