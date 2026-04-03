@@ -102,7 +102,7 @@ void AuthController::registerUser(
 
     const std::string hash = bcrypt::generateHash(password);
 
-    dbClient->execSqlSync("BEGIN");
+    auto trans = dbClient->newTransaction();
 
     AppUser user;
     user.setEmail(email);
@@ -116,7 +116,7 @@ void AuthController::registerUser(
     user.setCreatedAt(::trantor::Date::now());
     user.setUpdatedAt(::trantor::Date::now());
 
-    drogon::orm::Mapper<AppUser> usersMapper(dbClient);
+    drogon::orm::Mapper<AppUser> usersMapper(trans);
     usersMapper.insert(user);
 
     std::string createdUserId;
@@ -126,10 +126,10 @@ void AuthController::registerUser(
       createdUserId.clear();
     }
     if (createdUserId.empty()) {
-      auto idRes = dbClient->execSqlSync(
+      auto idRes = trans->execSqlSync(
           "SELECT id FROM app_user WHERE email = $1 LIMIT 1", email);
       if (idRes.size() == 0) {
-        dbClient->execSqlSync("ROLLBACK");
+        trans->rollback();
         LOG_ERROR
             << "registerUser: inserted user but cannot determine id for email "
             << email;
@@ -142,11 +142,11 @@ void AuthController::registerUser(
       createdUserId = idRes[0]["id"].as<std::string>();
     }
 
-    drogon::orm::Mapper<UserWorkSchedule> wsMapper(dbClient);
+    drogon::orm::Mapper<UserWorkSchedule> wsMapper(trans);
     for (Json::UInt i = 0; i < workScheduleJson.size(); ++i) {
       const Json::Value item = workScheduleJson[i];
       if (!item.isObject()) {
-        dbClient->execSqlSync("ROLLBACK");
+        trans->rollback();
         auto resp = HttpResponse::newHttpJsonResponse(
             Json::Value("Invalid work_schedule item"));
         resp->setStatusCode(k400BadRequest);
@@ -154,7 +154,7 @@ void AuthController::registerUser(
         return;
       }
       if (!item.isMember("weekday")) {
-        dbClient->execSqlSync("ROLLBACK");
+        trans->rollback();
         auto resp = HttpResponse::newHttpJsonResponse(
             Json::Value("Each work_schedule item must contain weekday"));
         resp->setStatusCode(k400BadRequest);
@@ -173,7 +173,7 @@ void AuthController::registerUser(
       wsMapper.insert(ws);
     }
 
-    dbClient->execSqlSync("COMMIT");
+    trans->commit();
 
     const std::string token =
         jwt::create()
@@ -201,10 +201,6 @@ void AuthController::registerUser(
     callback(resp);
     return;
   } catch (const std::exception& e) {
-    try {
-      dbClient->execSqlSync("ROLLBACK");
-    } catch (...) {
-    }
     const std::string what = e.what() ? e.what() : std::string();
     if (containsCaseInsensitive(what, "duplicate") ||
         containsCaseInsensitive(what, "unique")) {
