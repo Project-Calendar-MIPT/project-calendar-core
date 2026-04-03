@@ -28,12 +28,12 @@ jobs:
             cd ..
 
             echo "==> Building new image..."
-            docker compose build backend
+            sudo docker compose build backend
 
             echo "==> Restarting backend..."
-            docker compose up -d --no-deps backend
+            sudo docker compose up -d --no-deps backend
 
             echo "==> Cleaning up old images..."
-            docker image prune -f
+            sudo docker image prune -f
 
             echo "==> Done!"
