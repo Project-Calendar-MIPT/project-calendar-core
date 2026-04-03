@@ -173,7 +173,7 @@ void AuthController::registerUser(
       wsMapper.insert(ws);
     }
 
-    trans->commit();
+    trans.reset();
 
     const std::string token =
         jwt::create()
