@@ -229,12 +229,12 @@ void UsersController::setWorkSchedule(
 
   auto dbClient = app().getDbClient();
   try {
-    dbClient->execSqlSync("BEGIN");
-    dbClient->execSqlSync("DELETE FROM user_work_schedule WHERE user_id = $1",
-                          userId);
+    auto trans = dbClient->newTransaction();
+    trans->execSqlSync("DELETE FROM user_work_schedule WHERE user_id = $1",
+                       userId);
 
     drogon::orm::Mapper<drogon_model::project_calendar::UserWorkSchedule>
-        wsMapper(dbClient);
+        wsMapper(trans);
     Json::Value createdArr(Json::arrayValue);
 
     for (Json::UInt i = 0; i < arr.size(); ++i) {
@@ -250,21 +250,7 @@ void UsersController::setWorkSchedule(
         ws.setEndTime(el["end_time"].asString());
       }
 
-      try {
-        wsMapper.insert(ws);
-      } catch (const std::exception& insertEx) {
-        LOG_ERROR << "UserWorkSchedule insert failed for user " << userId
-                  << ": " << insertEx.what();
-        try {
-          dbClient->execSqlSync("ROLLBACK");
-        } catch (...) {
-        }
-        auto resp = HttpResponse::newHttpJsonResponse(
-            Json::Value("Internal server error"));
-        resp->setStatusCode(k500InternalServerError);
-        callback(resp);
-        return;
-      }
+      wsMapper.insert(ws);
 
       Json::Value outItem;
       outItem["id"] = ws.getId() ? ws.getValueOfId() : Json::Value();
@@ -284,7 +270,7 @@ void UsersController::setWorkSchedule(
       createdArr.append(outItem);
     }
 
-    dbClient->execSqlSync("COMMIT");
+    trans.reset();
 
     auto resp = HttpResponse::newHttpJsonResponse(createdArr);
     resp->setStatusCode(k201Created);
@@ -294,10 +280,6 @@ void UsersController::setWorkSchedule(
   } catch (const std::exception& e) {
     LOG_ERROR << "setWorkSchedule failed for user " << userId << ": "
               << e.what();
-    try {
-      dbClient->execSqlSync("ROLLBACK");
-    } catch (...) {
-    }
     auto resp =
         HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
     resp->setStatusCode(k500InternalServerError);
