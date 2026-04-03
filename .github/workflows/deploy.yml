@@ -1,16 +1,28 @@
-name: Deploy to VPS
+name: Build & Deploy Backend
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Deploy via SSH
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image (compile check)
+        run: docker build -f Dockerfile. -t calendar-backend:ci .
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to VPS via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -19,21 +31,9 @@ jobs:
           port: ${{ secrets.VPS_PORT }}
           script: |
             set -e
-
             cd /home/debian/calendar/core
-
-            echo "==> Pulling latest changes..."
             git pull origin main
-
             cd ..
-
-            echo "==> Building new image..."
-            sudo docker compose build backend
-
-            echo "==> Restarting backend..."
+            sudo docker compose build --no-cache backend
             sudo docker compose up -d --no-deps backend
-
-            echo "==> Cleaning up old images..."
             sudo docker image prune -f
-
-            echo "==> Done!"
