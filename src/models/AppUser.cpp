@@ -5,7 +5,7 @@
  *
  */
 
-#include "models/AppUser.hpp"
+#include "AppUser.h"
 #include <drogon/utils/Utilities.h>
 #include <string>
 
@@ -24,6 +24,9 @@ const std::string AppUser::Cols::_locale = "\"locale\"";
 const std::string AppUser::Cols::_password_hash = "\"password_hash\"";
 const std::string AppUser::Cols::_created_at = "\"created_at\"";
 const std::string AppUser::Cols::_updated_at = "\"updated_at\"";
+const std::string AppUser::Cols::_timezone = "\"timezone\"";
+const std::string AppUser::Cols::_contacts_visible = "\"contacts_visible\"";
+const std::string AppUser::Cols::_experience_level = "\"experience_level\"";
 const std::string AppUser::primaryKeyName = "id";
 const bool AppUser::hasPrimaryKey = true;
 const std::string AppUser::tableName = "\"app_user\"";
@@ -39,7 +42,10 @@ const std::vector<typename AppUser::MetaData> AppUser::metaData_={
 {"locale","std::string","text",0,0,0,0},
 {"password_hash","std::string","text",0,0,0,0},
 {"created_at","::trantor::Date","timestamp with time zone",0,0,0,1},
-{"updated_at","::trantor::Date","timestamp with time zone",0,0,0,1}
+{"updated_at","::trantor::Date","timestamp with time zone",0,0,0,1},
+{"timezone","std::string","text",0,0,0,0},
+{"contacts_visible","bool","boolean",1,0,0,0},
+{"experience_level","std::string","text",0,0,0,0}
 };
 const std::string &AppUser::getColumnName(size_t index) noexcept(false)
 {
@@ -130,11 +136,23 @@ AppUser::AppUser(const Row &r, const ssize_t indexOffset) noexcept
                 updatedAt_=std::make_shared<::trantor::Date>(t*1000000+decimalNum);
             }
         }
+        if(!r["timezone"].isNull())
+        {
+            timezone_=std::make_shared<std::string>(r["timezone"].as<std::string>());
+        }
+        if(!r["contacts_visible"].isNull())
+        {
+            contactsVisible_=std::make_shared<bool>(r["contacts_visible"].as<bool>());
+        }
+        if(!r["experience_level"].isNull())
+        {
+            experienceLevel_=std::make_shared<std::string>(r["experience_level"].as<std::string>());
+        }
     }
     else
     {
         size_t offset = (size_t)indexOffset;
-        if(offset + 11 > r.size())
+        if(offset + 14 > r.size())
         {
             LOG_FATAL << "Invalid SQL result for this model";
             return;
@@ -231,13 +249,28 @@ AppUser::AppUser(const Row &r, const ssize_t indexOffset) noexcept
                 updatedAt_=std::make_shared<::trantor::Date>(t*1000000+decimalNum);
             }
         }
+        index = offset + 11;
+        if(!r[index].isNull())
+        {
+            timezone_=std::make_shared<std::string>(r[index].as<std::string>());
+        }
+        index = offset + 12;
+        if(!r[index].isNull())
+        {
+            contactsVisible_=std::make_shared<bool>(r[index].as<bool>());
+        }
+        index = offset + 13;
+        if(!r[index].isNull())
+        {
+            experienceLevel_=std::make_shared<std::string>(r[index].as<std::string>());
+        }
     }
 
 }
 
 AppUser::AppUser(const Json::Value &pJson, const std::vector<std::string> &pMasqueradingVector) noexcept(false)
 {
-    if(pMasqueradingVector.size() != 11)
+    if(pMasqueradingVector.size() != 14)
     {
         LOG_ERROR << "Bad masquerading vector";
         return;
@@ -364,6 +397,30 @@ AppUser::AppUser(const Json::Value &pJson, const std::vector<std::string> &pMasq
                 }
                 updatedAt_=std::make_shared<::trantor::Date>(t*1000000+decimalNum);
             }
+        }
+    }
+    if(!pMasqueradingVector[11].empty() && pJson.isMember(pMasqueradingVector[11]))
+    {
+        dirtyFlag_[11] = true;
+        if(!pJson[pMasqueradingVector[11]].isNull())
+        {
+            timezone_=std::make_shared<std::string>(pJson[pMasqueradingVector[11]].asString());
+        }
+    }
+    if(!pMasqueradingVector[12].empty() && pJson.isMember(pMasqueradingVector[12]))
+    {
+        dirtyFlag_[12] = true;
+        if(!pJson[pMasqueradingVector[12]].isNull())
+        {
+            contactsVisible_=std::make_shared<bool>(pJson[pMasqueradingVector[12]].asBool());
+        }
+    }
+    if(!pMasqueradingVector[13].empty() && pJson.isMember(pMasqueradingVector[13]))
+    {
+        dirtyFlag_[13] = true;
+        if(!pJson[pMasqueradingVector[13]].isNull())
+        {
+            experienceLevel_=std::make_shared<std::string>(pJson[pMasqueradingVector[13]].asString());
         }
     }
 }
@@ -494,12 +551,36 @@ AppUser::AppUser(const Json::Value &pJson) noexcept(false)
             }
         }
     }
+    if(pJson.isMember("timezone"))
+    {
+        dirtyFlag_[11]=true;
+        if(!pJson["timezone"].isNull())
+        {
+            timezone_=std::make_shared<std::string>(pJson["timezone"].asString());
+        }
+    }
+    if(pJson.isMember("contacts_visible"))
+    {
+        dirtyFlag_[12]=true;
+        if(!pJson["contacts_visible"].isNull())
+        {
+            contactsVisible_=std::make_shared<bool>(pJson["contacts_visible"].asBool());
+        }
+    }
+    if(pJson.isMember("experience_level"))
+    {
+        dirtyFlag_[13]=true;
+        if(!pJson["experience_level"].isNull())
+        {
+            experienceLevel_=std::make_shared<std::string>(pJson["experience_level"].asString());
+        }
+    }
 }
 
 void AppUser::updateByMasqueradedJson(const Json::Value &pJson,
                                             const std::vector<std::string> &pMasqueradingVector) noexcept(false)
 {
-    if(pMasqueradingVector.size() != 11)
+    if(pMasqueradingVector.size() != 14)
     {
         LOG_ERROR << "Bad masquerading vector";
         return;
@@ -627,6 +708,30 @@ void AppUser::updateByMasqueradedJson(const Json::Value &pJson,
             }
         }
     }
+    if(!pMasqueradingVector[11].empty() && pJson.isMember(pMasqueradingVector[11]))
+    {
+        dirtyFlag_[11] = true;
+        if(!pJson[pMasqueradingVector[11]].isNull())
+        {
+            timezone_=std::make_shared<std::string>(pJson[pMasqueradingVector[11]].asString());
+        }
+    }
+    if(!pMasqueradingVector[12].empty() && pJson.isMember(pMasqueradingVector[12]))
+    {
+        dirtyFlag_[12] = true;
+        if(!pJson[pMasqueradingVector[12]].isNull())
+        {
+            contactsVisible_=std::make_shared<bool>(pJson[pMasqueradingVector[12]].asBool());
+        }
+    }
+    if(!pMasqueradingVector[13].empty() && pJson.isMember(pMasqueradingVector[13]))
+    {
+        dirtyFlag_[13] = true;
+        if(!pJson[pMasqueradingVector[13]].isNull())
+        {
+            experienceLevel_=std::make_shared<std::string>(pJson[pMasqueradingVector[13]].asString());
+        }
+    }
 }
 
 void AppUser::updateByJson(const Json::Value &pJson) noexcept(false)
@@ -752,6 +857,30 @@ void AppUser::updateByJson(const Json::Value &pJson) noexcept(false)
                 }
                 updatedAt_=std::make_shared<::trantor::Date>(t*1000000+decimalNum);
             }
+        }
+    }
+    if(pJson.isMember("timezone"))
+    {
+        dirtyFlag_[11] = true;
+        if(!pJson["timezone"].isNull())
+        {
+            timezone_=std::make_shared<std::string>(pJson["timezone"].asString());
+        }
+    }
+    if(pJson.isMember("contacts_visible"))
+    {
+        dirtyFlag_[12] = true;
+        if(!pJson["contacts_visible"].isNull())
+        {
+            contactsVisible_=std::make_shared<bool>(pJson["contacts_visible"].asBool());
+        }
+    }
+    if(pJson.isMember("experience_level"))
+    {
+        dirtyFlag_[13] = true;
+        if(!pJson["experience_level"].isNull())
+        {
+            experienceLevel_=std::make_shared<std::string>(pJson["experience_level"].asString());
         }
     }
 }
@@ -1023,6 +1152,82 @@ void AppUser::setUpdatedAt(const ::trantor::Date &pUpdatedAt) noexcept
     dirtyFlag_[10] = true;
 }
 
+const std::string &AppUser::getValueOfTimezone() const noexcept
+{
+    static const std::string defaultValue = std::string();
+    if(timezone_)
+        return *timezone_;
+    return defaultValue;
+}
+const std::shared_ptr<std::string> &AppUser::getTimezone() const noexcept
+{
+    return timezone_;
+}
+void AppUser::setTimezone(const std::string &pTimezone) noexcept
+{
+    timezone_ = std::make_shared<std::string>(pTimezone);
+    dirtyFlag_[11] = true;
+}
+void AppUser::setTimezone(std::string &&pTimezone) noexcept
+{
+    timezone_ = std::make_shared<std::string>(std::move(pTimezone));
+    dirtyFlag_[11] = true;
+}
+void AppUser::setTimezoneToNull() noexcept
+{
+    timezone_.reset();
+    dirtyFlag_[11] = true;
+}
+
+const bool &AppUser::getValueOfContactsVisible() const noexcept
+{
+    static const bool defaultValue = bool();
+    if(contactsVisible_)
+        return *contactsVisible_;
+    return defaultValue;
+}
+const std::shared_ptr<bool> &AppUser::getContactsVisible() const noexcept
+{
+    return contactsVisible_;
+}
+void AppUser::setContactsVisible(const bool &pContactsVisible) noexcept
+{
+    contactsVisible_ = std::make_shared<bool>(pContactsVisible);
+    dirtyFlag_[12] = true;
+}
+void AppUser::setContactsVisibleToNull() noexcept
+{
+    contactsVisible_.reset();
+    dirtyFlag_[12] = true;
+}
+
+const std::string &AppUser::getValueOfExperienceLevel() const noexcept
+{
+    static const std::string defaultValue = std::string();
+    if(experienceLevel_)
+        return *experienceLevel_;
+    return defaultValue;
+}
+const std::shared_ptr<std::string> &AppUser::getExperienceLevel() const noexcept
+{
+    return experienceLevel_;
+}
+void AppUser::setExperienceLevel(const std::string &pExperienceLevel) noexcept
+{
+    experienceLevel_ = std::make_shared<std::string>(pExperienceLevel);
+    dirtyFlag_[13] = true;
+}
+void AppUser::setExperienceLevel(std::string &&pExperienceLevel) noexcept
+{
+    experienceLevel_ = std::make_shared<std::string>(std::move(pExperienceLevel));
+    dirtyFlag_[13] = true;
+}
+void AppUser::setExperienceLevelToNull() noexcept
+{
+    experienceLevel_.reset();
+    dirtyFlag_[13] = true;
+}
+
 void AppUser::updateId(const uint64_t id)
 {
 }
@@ -1040,7 +1245,10 @@ const std::vector<std::string> &AppUser::insertColumns() noexcept
         "locale",
         "password_hash",
         "created_at",
-        "updated_at"
+        "updated_at",
+        "timezone",
+        "contacts_visible",
+        "experience_level"
     };
     return inCols;
 }
@@ -1168,6 +1376,39 @@ void AppUser::outputArgs(drogon::orm::internal::SqlBinder &binder) const
             binder << nullptr;
         }
     }
+    if(dirtyFlag_[11])
+    {
+        if(getTimezone())
+        {
+            binder << getValueOfTimezone();
+        }
+        else
+        {
+            binder << nullptr;
+        }
+    }
+    if(dirtyFlag_[12])
+    {
+        if(getContactsVisible())
+        {
+            binder << getValueOfContactsVisible();
+        }
+        else
+        {
+            binder << nullptr;
+        }
+    }
+    if(dirtyFlag_[13])
+    {
+        if(getExperienceLevel())
+        {
+            binder << getValueOfExperienceLevel();
+        }
+        else
+        {
+            binder << nullptr;
+        }
+    }
 }
 
 const std::vector<std::string> AppUser::updateColumns() const
@@ -1216,6 +1457,18 @@ const std::vector<std::string> AppUser::updateColumns() const
     if(dirtyFlag_[10])
     {
         ret.push_back(getColumnName(10));
+    }
+    if(dirtyFlag_[11])
+    {
+        ret.push_back(getColumnName(11));
+    }
+    if(dirtyFlag_[12])
+    {
+        ret.push_back(getColumnName(12));
+    }
+    if(dirtyFlag_[13])
+    {
+        ret.push_back(getColumnName(13));
     }
     return ret;
 }
@@ -1343,6 +1596,39 @@ void AppUser::updateArgs(drogon::orm::internal::SqlBinder &binder) const
             binder << nullptr;
         }
     }
+    if(dirtyFlag_[11])
+    {
+        if(getTimezone())
+        {
+            binder << getValueOfTimezone();
+        }
+        else
+        {
+            binder << nullptr;
+        }
+    }
+    if(dirtyFlag_[12])
+    {
+        if(getContactsVisible())
+        {
+            binder << getValueOfContactsVisible();
+        }
+        else
+        {
+            binder << nullptr;
+        }
+    }
+    if(dirtyFlag_[13])
+    {
+        if(getExperienceLevel())
+        {
+            binder << getValueOfExperienceLevel();
+        }
+        else
+        {
+            binder << nullptr;
+        }
+    }
 }
 Json::Value AppUser::toJson() const
 {
@@ -1435,14 +1721,43 @@ Json::Value AppUser::toJson() const
     {
         ret["updated_at"]=Json::Value();
     }
+    if(getTimezone())
+    {
+        ret["timezone"]=getValueOfTimezone();
+    }
+    else
+    {
+        ret["timezone"]=Json::Value();
+    }
+    if(getContactsVisible())
+    {
+        ret["contacts_visible"]=getValueOfContactsVisible();
+    }
+    else
+    {
+        ret["contacts_visible"]=Json::Value();
+    }
+    if(getExperienceLevel())
+    {
+        ret["experience_level"]=getValueOfExperienceLevel();
+    }
+    else
+    {
+        ret["experience_level"]=Json::Value();
+    }
     return ret;
+}
+
+std::string AppUser::toString() const
+{
+    return toJson().toStyledString();
 }
 
 Json::Value AppUser::toMasqueradedJson(
     const std::vector<std::string> &pMasqueradingVector) const
 {
     Json::Value ret;
-    if(pMasqueradingVector.size() == 11)
+    if(pMasqueradingVector.size() == 14)
     {
         if(!pMasqueradingVector[0].empty())
         {
@@ -1565,6 +1880,39 @@ Json::Value AppUser::toMasqueradedJson(
                 ret[pMasqueradingVector[10]]=Json::Value();
             }
         }
+        if(!pMasqueradingVector[11].empty())
+        {
+            if(getTimezone())
+            {
+                ret[pMasqueradingVector[11]]=getValueOfTimezone();
+            }
+            else
+            {
+                ret[pMasqueradingVector[11]]=Json::Value();
+            }
+        }
+        if(!pMasqueradingVector[12].empty())
+        {
+            if(getContactsVisible())
+            {
+                ret[pMasqueradingVector[12]]=getValueOfContactsVisible();
+            }
+            else
+            {
+                ret[pMasqueradingVector[12]]=Json::Value();
+            }
+        }
+        if(!pMasqueradingVector[13].empty())
+        {
+            if(getExperienceLevel())
+            {
+                ret[pMasqueradingVector[13]]=getValueOfExperienceLevel();
+            }
+            else
+            {
+                ret[pMasqueradingVector[13]]=Json::Value();
+            }
+        }
         return ret;
     }
     LOG_ERROR << "Masquerade failed";
@@ -1656,6 +2004,30 @@ Json::Value AppUser::toMasqueradedJson(
     {
         ret["updated_at"]=Json::Value();
     }
+    if(getTimezone())
+    {
+        ret["timezone"]=getValueOfTimezone();
+    }
+    else
+    {
+        ret["timezone"]=Json::Value();
+    }
+    if(getContactsVisible())
+    {
+        ret["contacts_visible"]=getValueOfContactsVisible();
+    }
+    else
+    {
+        ret["contacts_visible"]=Json::Value();
+    }
+    if(getExperienceLevel())
+    {
+        ret["experience_level"]=getValueOfExperienceLevel();
+    }
+    else
+    {
+        ret["experience_level"]=Json::Value();
+    }
     return ret;
 }
 
@@ -1726,13 +2098,28 @@ bool AppUser::validateJsonForCreation(const Json::Value &pJson, std::string &err
         if(!validJsonOfField(10, "updated_at", pJson["updated_at"], err, true))
             return false;
     }
+    if(pJson.isMember("timezone"))
+    {
+        if(!validJsonOfField(11, "timezone", pJson["timezone"], err, true))
+            return false;
+    }
+    if(pJson.isMember("contacts_visible"))
+    {
+        if(!validJsonOfField(12, "contacts_visible", pJson["contacts_visible"], err, true))
+            return false;
+    }
+    if(pJson.isMember("experience_level"))
+    {
+        if(!validJsonOfField(13, "experience_level", pJson["experience_level"], err, true))
+            return false;
+    }
     return true;
 }
 bool AppUser::validateMasqueradedJsonForCreation(const Json::Value &pJson,
                                                  const std::vector<std::string> &pMasqueradingVector,
                                                  std::string &err)
 {
-    if(pMasqueradingVector.size() != 11)
+    if(pMasqueradingVector.size() != 14)
     {
         err = "Bad masquerading vector";
         return false;
@@ -1836,6 +2223,30 @@ bool AppUser::validateMasqueradedJsonForCreation(const Json::Value &pJson,
                   return false;
           }
       }
+      if(!pMasqueradingVector[11].empty())
+      {
+          if(pJson.isMember(pMasqueradingVector[11]))
+          {
+              if(!validJsonOfField(11, pMasqueradingVector[11], pJson[pMasqueradingVector[11]], err, true))
+                  return false;
+          }
+      }
+      if(!pMasqueradingVector[12].empty())
+      {
+          if(pJson.isMember(pMasqueradingVector[12]))
+          {
+              if(!validJsonOfField(12, pMasqueradingVector[12], pJson[pMasqueradingVector[12]], err, true))
+                  return false;
+          }
+      }
+      if(!pMasqueradingVector[13].empty())
+      {
+          if(pJson.isMember(pMasqueradingVector[13]))
+          {
+              if(!validJsonOfField(13, pMasqueradingVector[13], pJson[pMasqueradingVector[13]], err, true))
+                  return false;
+          }
+      }
     }
     catch(const Json::LogicError &e)
     {
@@ -1906,13 +2317,28 @@ bool AppUser::validateJsonForUpdate(const Json::Value &pJson, std::string &err)
         if(!validJsonOfField(10, "updated_at", pJson["updated_at"], err, false))
             return false;
     }
+    if(pJson.isMember("timezone"))
+    {
+        if(!validJsonOfField(11, "timezone", pJson["timezone"], err, false))
+            return false;
+    }
+    if(pJson.isMember("contacts_visible"))
+    {
+        if(!validJsonOfField(12, "contacts_visible", pJson["contacts_visible"], err, false))
+            return false;
+    }
+    if(pJson.isMember("experience_level"))
+    {
+        if(!validJsonOfField(13, "experience_level", pJson["experience_level"], err, false))
+            return false;
+    }
     return true;
 }
 bool AppUser::validateMasqueradedJsonForUpdate(const Json::Value &pJson,
                                                const std::vector<std::string> &pMasqueradingVector,
                                                std::string &err)
 {
-    if(pMasqueradingVector.size() != 11)
+    if(pMasqueradingVector.size() != 14)
     {
         err = "Bad masquerading vector";
         return false;
@@ -1976,6 +2402,21 @@ bool AppUser::validateMasqueradedJsonForUpdate(const Json::Value &pJson,
       if(!pMasqueradingVector[10].empty() && pJson.isMember(pMasqueradingVector[10]))
       {
           if(!validJsonOfField(10, pMasqueradingVector[10], pJson[pMasqueradingVector[10]], err, false))
+              return false;
+      }
+      if(!pMasqueradingVector[11].empty() && pJson.isMember(pMasqueradingVector[11]))
+      {
+          if(!validJsonOfField(11, pMasqueradingVector[11], pJson[pMasqueradingVector[11]], err, false))
+              return false;
+      }
+      if(!pMasqueradingVector[12].empty() && pJson.isMember(pMasqueradingVector[12]))
+      {
+          if(!validJsonOfField(12, pMasqueradingVector[12], pJson[pMasqueradingVector[12]], err, false))
+              return false;
+      }
+      if(!pMasqueradingVector[13].empty() && pJson.isMember(pMasqueradingVector[13]))
+      {
+          if(!validJsonOfField(13, pMasqueradingVector[13], pJson[pMasqueradingVector[13]], err, false))
               return false;
       }
     }
@@ -2113,6 +2554,39 @@ bool AppUser::validJsonOfField(size_t index,
             {
                 err="The " + fieldName + " column cannot be null";
                 return false;
+            }
+            if(!pJson.isString())
+            {
+                err="Type error in the "+fieldName+" field";
+                return false;
+            }
+            break;
+        case 11:
+            if(pJson.isNull())
+            {
+                return true;
+            }
+            if(!pJson.isString())
+            {
+                err="Type error in the "+fieldName+" field";
+                return false;
+            }
+            break;
+        case 12:
+            if(pJson.isNull())
+            {
+                return true;
+            }
+            if(!pJson.isBool())
+            {
+                err="Type error in the "+fieldName+" field";
+                return false;
+            }
+            break;
+        case 13:
+            if(pJson.isNull())
+            {
+                return true;
             }
             if(!pJson.isString())
             {

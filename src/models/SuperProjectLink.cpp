@@ -5,7 +5,7 @@
  *
  */
 
-#include "models/SuperProjectLink.hpp"
+#include "SuperProjectLink.h"
 #include <drogon/utils/Utilities.h>
 #include <string>
 
@@ -400,6 +400,11 @@ Json::Value SuperProjectLink::toJson() const
         ret["project_id"]=Json::Value();
     }
     return ret;
+}
+
+std::string SuperProjectLink::toString() const
+{
+    return toJson().toStyledString();
 }
 
 Json::Value SuperProjectLink::toMasqueradedJson(

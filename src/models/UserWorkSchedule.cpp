@@ -5,7 +5,7 @@
  *
  */
 
-#include "models/UserWorkSchedule.hpp"
+#include "UserWorkSchedule.h"
 #include <drogon/utils/Utilities.h>
 #include <string>
 
@@ -600,6 +600,11 @@ Json::Value UserWorkSchedule::toJson() const
         ret["end_time"]=Json::Value();
     }
     return ret;
+}
+
+std::string UserWorkSchedule::toString() const
+{
+    return toJson().toStyledString();
 }
 
 Json::Value UserWorkSchedule::toMasqueradedJson(

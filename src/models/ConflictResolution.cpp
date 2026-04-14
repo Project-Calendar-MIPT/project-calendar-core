@@ -5,7 +5,7 @@
  *
  */
 
-#include "models/ConflictResolution.hpp"
+#include "ConflictResolution.h"
 #include <drogon/utils/Utilities.h>
 #include <string>
 
@@ -1436,6 +1436,11 @@ Json::Value ConflictResolution::toJson() const
         ret["decided_at"]=Json::Value();
     }
     return ret;
+}
+
+std::string ConflictResolution::toString() const
+{
+    return toJson().toStyledString();
 }
 
 Json::Value ConflictResolution::toMasqueradedJson(

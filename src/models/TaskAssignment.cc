@@ -715,6 +715,11 @@ Json::Value TaskAssignment::toJson() const
     return ret;
 }
 
+std::string TaskAssignment::toString() const
+{
+    return toJson().toStyledString();
+}
+
 Json::Value TaskAssignment::toMasqueradedJson(
     const std::vector<std::string> &pMasqueradingVector) const
 {

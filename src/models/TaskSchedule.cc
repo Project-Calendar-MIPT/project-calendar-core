@@ -1008,6 +1008,11 @@ Json::Value TaskSchedule::toJson() const
     return ret;
 }
 
+std::string TaskSchedule::toString() const
+{
+    return toJson().toStyledString();
+}
+
 Json::Value TaskSchedule::toMasqueradedJson(
     const std::vector<std::string> &pMasqueradingVector) const
 {

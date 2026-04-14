@@ -5,7 +5,7 @@
  *
  */
 
-#include "models/AuditLog.hpp"
+#include "AuditLog.h"
 #include <drogon/utils/Utilities.h>
 #include <string>
 
@@ -1233,6 +1233,11 @@ Json::Value AuditLog::toJson() const
         ret["user_agent"]=Json::Value();
     }
     return ret;
+}
+
+std::string AuditLog::toString() const
+{
+    return toJson().toStyledString();
 }
 
 Json::Value AuditLog::toMasqueradedJson(

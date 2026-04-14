@@ -5,7 +5,7 @@
  *
  */
 
-#include "models/ProjectAllocation.hpp"
+#include "ProjectAllocation.h"
 #include <drogon/utils/Utilities.h>
 #include <string>
 
@@ -805,6 +805,11 @@ Json::Value ProjectAllocation::toJson() const
         ret["hours_per_day"]=Json::Value();
     }
     return ret;
+}
+
+std::string ProjectAllocation::toString() const
+{
+    return toJson().toStyledString();
 }
 
 Json::Value ProjectAllocation::toMasqueradedJson(

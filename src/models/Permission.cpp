@@ -5,7 +5,7 @@
  *
  */
 
-#include "models/Permission.hpp"
+#include "Permission.h"
 #include <drogon/utils/Utilities.h>
 #include <string>
 
@@ -400,6 +400,11 @@ Json::Value Permission::toJson() const
         ret["is_global"]=Json::Value();
     }
     return ret;
+}
+
+std::string Permission::toString() const
+{
+    return toJson().toStyledString();
 }
 
 Json::Value Permission::toMasqueradedJson(

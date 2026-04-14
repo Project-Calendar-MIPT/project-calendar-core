@@ -1235,6 +1235,11 @@ Json::Value AuditLog::toJson() const
     return ret;
 }
 
+std::string AuditLog::toString() const
+{
+    return toJson().toStyledString();
+}
+
 Json::Value AuditLog::toMasqueradedJson(
     const std::vector<std::string> &pMasqueradingVector) const
 {
