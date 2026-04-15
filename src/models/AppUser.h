@@ -58,6 +58,7 @@ class AppUser
         static const std::string _timezone;
         static const std::string _contacts_visible;
         static const std::string _experience_level;
+        static const std::string _middle_name;
     };
 
     static const int primaryKeyNumber;
@@ -241,8 +242,18 @@ class AppUser
     void setExperienceLevel(std::string &&pExperienceLevel) noexcept;
     void setExperienceLevelToNull() noexcept;
 
+    /**  For column middle_name  */
+    ///Get the value of the column middle_name, returns the default value if the column is null
+    const std::string &getValueOfMiddleName() const noexcept;
+    ///Return a shared_ptr object pointing to the column const value, or an empty shared_ptr object if the column is null
+    const std::shared_ptr<std::string> &getMiddleName() const noexcept;
+    ///Set the value of the column middle_name
+    void setMiddleName(const std::string &pMiddleName) noexcept;
+    void setMiddleName(std::string &&pMiddleName) noexcept;
+    void setMiddleNameToNull() noexcept;
 
-    static size_t getColumnNumber() noexcept {  return 14;  }
+
+    static size_t getColumnNumber() noexcept {  return 15;  }
     static const std::string &getColumnName(size_t index) noexcept(false);
 
     Json::Value toJson() const;
@@ -278,6 +289,7 @@ class AppUser
     std::shared_ptr<std::string> timezone_;
     std::shared_ptr<bool> contactsVisible_;
     std::shared_ptr<std::string> experienceLevel_;
+    std::shared_ptr<std::string> middleName_;
     struct MetaData
     {
         const std::string colName_;
@@ -289,7 +301,7 @@ class AppUser
         const bool notNull_;
     };
     static const std::vector<MetaData> metaData_;
-    bool dirtyFlag_[14]={ false };
+    bool dirtyFlag_[15]={ false };
   public:
     static const std::string &sqlForFindingByPrimaryKey()
     {
@@ -382,6 +394,12 @@ class AppUser
         {
             sql += "experience_level,";
             ++parametersCount;
+        }
+        sql += "middle_name,";
+        ++parametersCount;
+        if(!dirtyFlag_[14])
+        {
+            needSelection=true;
         }
         if(parametersCount > 0)
         {
@@ -487,6 +505,15 @@ class AppUser
         {
             n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
             sql.append(placeholderStr, n);
+        }
+        if(dirtyFlag_[14])
+        {
+            n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
+            sql.append(placeholderStr, n);
+        }
+        else
+        {
+            sql +="default,";
         }
         if(parametersCount > 0)
         {
