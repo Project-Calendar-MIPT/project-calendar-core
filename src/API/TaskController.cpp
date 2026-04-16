@@ -1,5 +1,4 @@
 #include "API/TaskController.h"
-#include "API/RbacHelpers.h"
 
 #include <drogon/HttpResponse.h>
 #include <drogon/drogon.h>
@@ -14,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "API/RbacHelpers.h"
 #include "models/Task.h"
 #include "models/TaskAssignment.h"
 #include "models/TaskRoleAssignment.h"
@@ -312,9 +312,8 @@ void TaskController::createTask(
               ? j["project_root_id"].asString()
               : "";
       std::string dateError;
-      if (!validateDatesAgainstProject(trans, projectRootId,
-                                       payloadStartDate, payloadDueDate,
-                                       dateError)) {
+      if (!validateDatesAgainstProject(trans, projectRootId, payloadStartDate,
+                                       payloadDueDate, dateError)) {
         auto resp = HttpResponse::newHttpJsonResponse(Json::Value(dateError));
         resp->setStatusCode(k400BadRequest);
         return callback(resp);
@@ -339,8 +338,7 @@ void TaskController::createTask(
     task.setCreatedAt(::trantor::Date::now());
     task.setUpdatedAt(::trantor::Date::now());
 
-    drogon::orm::Mapper<drogon_model::project_calendar::Task> taskMapper(
-        trans);
+    drogon::orm::Mapper<drogon_model::project_calendar::Task> taskMapper(trans);
     taskMapper.insert(task);
 
     std::string taskId;
@@ -1481,7 +1479,8 @@ void TaskController::createAssignment(
         taskId);
     if (!projCheck.empty() && !projCheck[0]["proj_id"].isNull()) {
       const std::string projId = projCheck[0]["proj_id"].as<std::string>();
-      const std::string callerRole = getCallerProjectRole(dbClient, projId, requester);
+      const std::string callerRole =
+          getCallerProjectRole(dbClient, projId, requester);
       if (!isOwnerOrAdmin(callerRole)) {
         auto resp = HttpResponse::newHttpJsonResponse(
             Json::Value("Insufficient permissions"));
@@ -1523,7 +1522,8 @@ void TaskController::createAssignment(
       const bool isProject = taskInfo[0]["parent_task_id"].isNull();
       if (isProject) {
         auto owners = dbClient->execSqlSync(
-            "SELECT 1 FROM \"task_role_assignment\" WHERE task_id = $1 AND role = "
+            "SELECT 1 FROM \"task_role_assignment\" WHERE task_id = $1 AND "
+            "role = "
             "'owner' LIMIT 1",
             taskId);
         if (!owners.empty()) {
@@ -1721,7 +1721,8 @@ void TaskController::deleteAssignment(
         taskId);
     if (!projCheck.empty() && !projCheck[0]["proj_id"].isNull()) {
       const std::string projId = projCheck[0]["proj_id"].as<std::string>();
-      const std::string callerRole = getCallerProjectRole(dbClient, projId, requester);
+      const std::string callerRole =
+          getCallerProjectRole(dbClient, projId, requester);
       if (!isOwnerOrAdmin(callerRole)) {
         auto resp = HttpResponse::newHttpJsonResponse(
             Json::Value("Insufficient permissions"));
@@ -2078,6 +2079,56 @@ void TaskController::deleteNote(
 
   } catch (const std::exception& e) {
     LOG_ERROR << "deleteNote failed: " << e.what();
+    auto resp =
+        HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
+    resp->setStatusCode(k500InternalServerError);
+    return callback(resp);
+  }
+}
+
+void TaskController::removeAssignmentByUser(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  std::string taskId = getPathVariableCompat(req, "task_id");
+  std::string targetUserId = getPathVariableCompat(req, "user_id");
+
+  if (taskId.empty() || targetUserId.empty()) {
+    auto resp = HttpResponse::newHttpJsonResponse(
+        Json::Value("Missing task_id or user_id"));
+    resp->setStatusCode(k400BadRequest);
+    return callback(resp);
+  }
+
+  auto attrsPtr = req->attributes();
+  if (!attrsPtr || !attrsPtr->find("user_id")) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
+    resp->setStatusCode(k401Unauthorized);
+    return callback(resp);
+  }
+  const std::string requesterId = attrsPtr->get<std::string>("user_id");
+
+  auto dbClient = app().getDbClient();
+  try {
+    auto trans = dbClient->newTransaction();
+
+    trans->execSqlSync(
+        "DELETE FROM \"task_role_assignment\" WHERE task_id = $1 AND user_id = "
+        "$2",
+        taskId, targetUserId);
+
+    trans->execSqlSync(
+        "DELETE FROM \"task_assignment\" WHERE task_id = $1 AND user_id = $2",
+        taskId, targetUserId);
+
+    trans.reset();
+
+    auto resp =
+        HttpResponse::newHttpJsonResponse(Json::Value("Assignment removed"));
+    resp->setStatusCode(k200OK);
+    return callback(resp);
+
+  } catch (const std::exception& e) {
+    LOG_ERROR << "removeAssignmentByUser failed: " << e.what();
     auto resp =
         HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
     resp->setStatusCode(k500InternalServerError);

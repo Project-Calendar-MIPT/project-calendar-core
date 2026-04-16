@@ -9,7 +9,6 @@
 #include <drogon/utils/Utilities.h>
 #include <string>
 
-using namespace drogon;
 using namespace drogon::orm;
 using namespace drogon_model::project_calendar;
 
