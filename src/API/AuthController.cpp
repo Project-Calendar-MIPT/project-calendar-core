@@ -1,6 +1,5 @@
 #include "API/AuthController.h"
 
-#include <bcrypt.h>
 #include <drogon/drogon.h>
 #include <drogon/orm/DbClient.h>
 #include <drogon/orm/Mapper.h>
@@ -10,6 +9,7 @@
 #include <trantor/utils/Logger.h>
 
 #include <algorithm>
+#include <bcrypt/BCrypt.hpp>
 #include <cctype>
 #include <cstdlib>
 #include <exception>
@@ -131,7 +131,7 @@ void AuthController::registerUser(
       return;
     }
 
-    const std::string hash = bcrypt::generateHash(password);
+    const std::string hash = BCrypt::generateHash(password);
 
     auto trans = dbClient->newTransaction();
 
@@ -298,7 +298,6 @@ void AuthController::login(
   const std::string password = j["password"].asString();
 
   auto dbClient = app().getDbClient();
-
   auto callbackCopy = std::move(callback);
 
   std::function<void(const drogon::orm::Result&)> loginResultCb =
@@ -322,7 +321,7 @@ void AuthController::login(
           }
           const std::string passHash = row["password_hash"].as<std::string>();
 
-          bool ok = bcrypt::validatePassword(password, passHash);
+          bool ok = BCrypt::validatePassword(password, passHash);
           if (!ok) {
             auto resp =
                 HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
@@ -343,7 +342,7 @@ void AuthController::login(
 
           using namespace std::chrono;
           const auto now = system_clock::now();
-          const auto expires = now + hours(24);
+          const auto expires = now + hours(24 * kTokenExpiryDays);
 
           const std::string token =
               jwt::create()
@@ -429,11 +428,10 @@ void AuthController::me(
     }
 
     auto dbClient = app().getDbClient();
-
     auto callbackCopy = std::move(callback);
 
     std::function<void(const drogon::orm::Result&)> meResultCb =
-        [callbackCopy](const drogon::orm::Result& r) {
+        [callbackCopy, dbClient, userId](const drogon::orm::Result& r) {
           try {
             if (r.size() == 0) {
               auto resp = HttpResponse::newHttpJsonResponse(
@@ -442,20 +440,76 @@ void AuthController::me(
               callbackCopy(resp);
               return;
             }
+
             const auto& row = r[0];
             Json::Value userJson;
             userJson["id"] = row["id"].as<std::string>();
+
             if (!row["display_name"].isNull())
               userJson["display_name"] = row["display_name"].as<std::string>();
             if (!row["email"].isNull())
               userJson["email"] = row["email"].as<std::string>();
+            if (!row["name"].isNull())
+              userJson["name"] = row["name"].as<std::string>();
+            if (!row["surname"].isNull())
+              userJson["surname"] = row["surname"].as<std::string>();
+            if (!row["middle_name"].isNull())
+              userJson["middle_name"] = row["middle_name"].as<std::string>();
+            if (!row["phone"].isNull())
+              userJson["phone"] = row["phone"].as<std::string>();
+            if (!row["telegram"].isNull())
+              userJson["telegram"] = row["telegram"].as<std::string>();
+            if (!row["locale"].isNull())
+              userJson["locale"] = row["locale"].as<std::string>();
+            if (!row["timezone"].isNull())
+              userJson["timezone"] = row["timezone"].as<std::string>();
+            if (!row["contacts_visible"].isNull())
+              userJson["contacts_visible"] = row["contacts_visible"].as<bool>();
+            if (!row["experience_level"].isNull())
+              userJson["experience_level"] =
+                  row["experience_level"].as<std::string>();
+
             if (!row["created_at"].isNull())
               userJson["created_at"] = row["created_at"].as<std::string>();
             if (!row["updated_at"].isNull())
               userJson["updated_at"] = row["updated_at"].as<std::string>();
-            auto resp = HttpResponse::newHttpJsonResponse(userJson);
-            resp->setStatusCode(k200OK);
-            callbackCopy(resp);
+
+            dbClient->execSqlAsync(
+                "SELECT name, experience_level FROM user_skill WHERE user_id = "
+                "$1",
+                [callbackCopy,
+                 userJson](const drogon::orm::Result& skillRes) mutable {
+                  Json::Value stackJson(Json::arrayValue);
+                  for (const auto& skillRow : skillRes) {
+                    Json::Value skillItem;
+                    skillItem["name"] = skillRow["name"].as<std::string>();
+                    if (!skillRow["experience_level"].isNull()) {
+                      skillItem["experience_level"] =
+                          skillRow["experience_level"].as<std::string>();
+                    }
+                    stackJson.append(skillItem);
+                  }
+
+                  userJson["stack"] = stackJson;
+
+                  auto resp = HttpResponse::newHttpJsonResponse(userJson);
+                  resp->setStatusCode(k200OK);
+                  callbackCopy(resp);
+                },
+                [callbackCopy](const std::exception_ptr& ep) {
+                  try {
+                    if (ep) std::rethrow_exception(ep);
+                  } catch (const std::exception& e) {
+                    LOG_ERROR << "DB error fetching skills in me handler: "
+                              << e.what();
+                  }
+                  auto resp = HttpResponse::newHttpJsonResponse(
+                      Json::Value("Internal server error"));
+                  resp->setStatusCode(k500InternalServerError);
+                  callbackCopy(resp);
+                },
+                userId);
+
           } catch (const std::exception& ex) {
             LOG_ERROR << "me handler DB callback failed: " << ex.what();
             auto resp = HttpResponse::newHttpJsonResponse(
@@ -476,8 +530,10 @@ void AuthController::me(
     };
 
     dbClient->execSqlAsync(
-        "SELECT id, display_name, email, created_at::text AS created_at, "
-        "updated_at::text AS updated_at "
+        "SELECT id, display_name, email, name, surname, middle_name, phone, "
+        "telegram, locale, "
+        "timezone, contacts_visible, experience_level, "
+        "created_at::text AS created_at, updated_at::text AS updated_at "
         "FROM app_user WHERE id = $1 LIMIT 1",
         std::move(meResultCb), exceptPtrCb, userId);
   } catch (const std::exception& e) {

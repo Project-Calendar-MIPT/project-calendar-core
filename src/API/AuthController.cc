@@ -1,4 +1,4 @@
-#include "AuthController.h"
+#include "API/AuthController.h"
 
 #include <drogon/drogon.h>
 #include <drogon/orm/DbClient.h>
@@ -11,15 +11,20 @@
 #include <algorithm>
 #include <bcrypt/BCrypt.hpp>
 #include <cctype>
+#include <cstdlib>
 #include <exception>
 #include <functional>
 #include <utility>
 
-#include "../models/AppUser.h"
-#include "../models/UserWorkSchedule.h"
+#include "models/AppUser.h"
+#include "models/UserSkill.h"
+#include "models/UserWorkSchedule.h"
 
 using drogon_model::project_calendar::AppUser;
+using drogon_model::project_calendar::UserSkill;
 using drogon_model::project_calendar::UserWorkSchedule;
+
+static constexpr int kTokenExpiryDays = 7;
 
 static bool containsCaseInsensitive(const std::string& hay,
                                     const std::string& needle) {
@@ -30,6 +35,12 @@ static bool containsCaseInsensitive(const std::string& hay,
                                  std::tolower(static_cast<unsigned char>(b));
                         });
   return it != hay.end();
+}
+
+static std::string getJwtSecret() {
+  const char* envSecret = std::getenv("JWT_SECRET");
+  return (envSecret && *envSecret) ? std::string(envSecret)
+                                   : std::string("replace_with_real_secret");
 }
 
 void AuthController::registerUser(
@@ -120,7 +131,7 @@ void AuthController::registerUser(
       return;
     }
 
-    const std::string hash = bcrypt::generateHash(password);
+    const std::string hash = BCrypt::generateHash(password);
 
     auto trans = dbClient->newTransaction();
 
@@ -287,7 +298,6 @@ void AuthController::login(
   const std::string password = j["password"].asString();
 
   auto dbClient = app().getDbClient();
-
   auto callbackCopy = std::move(callback);
 
   std::function<void(const drogon::orm::Result&)> loginResultCb =
@@ -320,14 +330,6 @@ void AuthController::login(
             return;
           }
 
-          const char* envSecret = std::getenv("JWT_SECRET");
-          const std::string secret =
-              envSecret ? envSecret : "replace_with_real_secret";
-
-          using namespace std::chrono;
-          auto now = system_clock::now();
-          auto expires = now + hours(24);
-
           const std::string userId =
               row["id"].isNull() ? std::string() : row["id"].as<std::string>();
           const std::string displayName =
@@ -338,7 +340,11 @@ void AuthController::login(
                                            ? std::string()
                                            : row["email"].as<std::string>();
 
-          auto token =
+          using namespace std::chrono;
+          const auto now = system_clock::now();
+          const auto expires = now + hours(24 * kTokenExpiryDays);
+
+          const std::string token =
               jwt::create()
                   .set_issued_at(now)
                   .set_expires_at(expires)
@@ -347,7 +353,7 @@ void AuthController::login(
                   .set_payload_claim("sub", jwt::claim(userId))
                   .set_payload_claim("display_name", jwt::claim(displayName))
                   .set_payload_claim("email", jwt::claim(emailVal))
-                  .sign(jwt::algorithm::hs256{secret});
+                  .sign(jwt::algorithm::hs256{getJwtSecret()});
 
           Json::Value respJson;
           respJson["token"] = token;
@@ -402,13 +408,10 @@ void AuthController::me(
 
   const std::string token = authHeader.substr(bearerPrefix.size());
 
-  const char* envSecret = std::getenv("JWT_SECRET");
-  const std::string secret = envSecret ? envSecret : "replace_with_real_secret";
-
   try {
     auto decoded = jwt::decode(token);
     auto verifier =
-        jwt::verify().allow_algorithm(jwt::algorithm::hs256{secret});
+        jwt::verify().allow_algorithm(jwt::algorithm::hs256{getJwtSecret()});
     verifier.verify(decoded);
 
     std::string userId;
@@ -425,11 +428,10 @@ void AuthController::me(
     }
 
     auto dbClient = app().getDbClient();
-
     auto callbackCopy = std::move(callback);
 
     std::function<void(const drogon::orm::Result&)> meResultCb =
-        [callbackCopy](const drogon::orm::Result& r) {
+        [callbackCopy, dbClient, userId](const drogon::orm::Result& r) {
           try {
             if (r.size() == 0) {
               auto resp = HttpResponse::newHttpJsonResponse(
@@ -438,20 +440,76 @@ void AuthController::me(
               callbackCopy(resp);
               return;
             }
+
             const auto& row = r[0];
             Json::Value userJson;
             userJson["id"] = row["id"].as<std::string>();
+
             if (!row["display_name"].isNull())
               userJson["display_name"] = row["display_name"].as<std::string>();
             if (!row["email"].isNull())
               userJson["email"] = row["email"].as<std::string>();
+            if (!row["name"].isNull())
+              userJson["name"] = row["name"].as<std::string>();
+            if (!row["surname"].isNull())
+              userJson["surname"] = row["surname"].as<std::string>();
+            if (!row["middle_name"].isNull())
+              userJson["middle_name"] = row["middle_name"].as<std::string>();
+            if (!row["phone"].isNull())
+              userJson["phone"] = row["phone"].as<std::string>();
+            if (!row["telegram"].isNull())
+              userJson["telegram"] = row["telegram"].as<std::string>();
+            if (!row["locale"].isNull())
+              userJson["locale"] = row["locale"].as<std::string>();
+            if (!row["timezone"].isNull())
+              userJson["timezone"] = row["timezone"].as<std::string>();
+            if (!row["contacts_visible"].isNull())
+              userJson["contacts_visible"] = row["contacts_visible"].as<bool>();
+            if (!row["experience_level"].isNull())
+              userJson["experience_level"] =
+                  row["experience_level"].as<std::string>();
+
             if (!row["created_at"].isNull())
               userJson["created_at"] = row["created_at"].as<std::string>();
             if (!row["updated_at"].isNull())
               userJson["updated_at"] = row["updated_at"].as<std::string>();
-            auto resp = HttpResponse::newHttpJsonResponse(userJson);
-            resp->setStatusCode(k200OK);
-            callbackCopy(resp);
+
+            dbClient->execSqlAsync(
+                "SELECT name, experience_level FROM user_skill WHERE user_id = "
+                "$1",
+                [callbackCopy,
+                 userJson](const drogon::orm::Result& skillRes) mutable {
+                  Json::Value stackJson(Json::arrayValue);
+                  for (const auto& skillRow : skillRes) {
+                    Json::Value skillItem;
+                    skillItem["name"] = skillRow["name"].as<std::string>();
+                    if (!skillRow["experience_level"].isNull()) {
+                      skillItem["experience_level"] =
+                          skillRow["experience_level"].as<std::string>();
+                    }
+                    stackJson.append(skillItem);
+                  }
+
+                  userJson["stack"] = stackJson;
+
+                  auto resp = HttpResponse::newHttpJsonResponse(userJson);
+                  resp->setStatusCode(k200OK);
+                  callbackCopy(resp);
+                },
+                [callbackCopy](const std::exception_ptr& ep) {
+                  try {
+                    if (ep) std::rethrow_exception(ep);
+                  } catch (const std::exception& e) {
+                    LOG_ERROR << "DB error fetching skills in me handler: "
+                              << e.what();
+                  }
+                  auto resp = HttpResponse::newHttpJsonResponse(
+                      Json::Value("Internal server error"));
+                  resp->setStatusCode(k500InternalServerError);
+                  callbackCopy(resp);
+                },
+                userId);
+
           } catch (const std::exception& ex) {
             LOG_ERROR << "me handler DB callback failed: " << ex.what();
             auto resp = HttpResponse::newHttpJsonResponse(
@@ -472,11 +530,12 @@ void AuthController::me(
     };
 
     dbClient->execSqlAsync(
-        "SELECT id, display_name, email, created_at::text AS created_at, "
-        "updated_at::text AS updated_at "
+        "SELECT id, display_name, email, name, surname, middle_name, phone, "
+        "telegram, locale, "
+        "timezone, contacts_visible, experience_level, "
+        "created_at::text AS created_at, updated_at::text AS updated_at "
         "FROM app_user WHERE id = $1 LIMIT 1",
         std::move(meResultCb), exceptPtrCb, userId);
-
   } catch (const std::exception& e) {
     LOG_WARN << "me token verification failed: " << e.what();
     auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Invalid token"));
