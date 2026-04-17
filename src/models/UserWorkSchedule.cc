@@ -602,6 +602,11 @@ Json::Value UserWorkSchedule::toJson() const
     return ret;
 }
 
+std::string UserWorkSchedule::toString() const
+{
+    return toJson().toStyledString();
+}
+
 Json::Value UserWorkSchedule::toMasqueradedJson(
     const std::vector<std::string> &pMasqueradingVector) const
 {

@@ -133,9 +133,9 @@ void UsersController::setWorkSchedule(
     return;
   }
   const Json::Value& arr = *pj;
-  if (arr.size() != 7) {
+  if (arr.size() < 1 || arr.size() > 7) {
     auto resp = HttpResponse::newHttpJsonResponse(
-        Json::Value("Array must contain 7 elements (one per weekday)"));
+        Json::Value("Array must contain 1-7 elements (one per weekday)"));
     resp->setStatusCode(k400BadRequest);
     callback(resp);
     return;
@@ -229,12 +229,12 @@ void UsersController::setWorkSchedule(
 
   auto dbClient = app().getDbClient();
   try {
-    dbClient->execSqlSync("BEGIN");
-    dbClient->execSqlSync("DELETE FROM user_work_schedule WHERE user_id = $1",
-                          userId);
+    auto trans = dbClient->newTransaction();
+    trans->execSqlSync("DELETE FROM user_work_schedule WHERE user_id = $1",
+                       userId);
 
     drogon::orm::Mapper<drogon_model::project_calendar::UserWorkSchedule>
-        wsMapper(dbClient);
+        wsMapper(trans);
     Json::Value createdArr(Json::arrayValue);
 
     for (Json::UInt i = 0; i < arr.size(); ++i) {
@@ -242,29 +242,18 @@ void UsersController::setWorkSchedule(
       int dow = el["day_of_week"].asInt();
       bool isWorking = el["is_working_day"].asBool();
 
+      // Only store working days — non-working days have no DB row
+      if (!isWorking) {
+        continue;
+      }
+
       drogon_model::project_calendar::UserWorkSchedule ws;
       ws.setUserId(userId);
       ws.setWeekday(static_cast<int32_t>(dow));
-      if (isWorking) {
-        ws.setStartTime(el["start_time"].asString());
-        ws.setEndTime(el["end_time"].asString());
-      }
+      ws.setStartTime(el["start_time"].asString());
+      ws.setEndTime(el["end_time"].asString());
 
-      try {
-        wsMapper.insert(ws);
-      } catch (const std::exception& insertEx) {
-        LOG_ERROR << "UserWorkSchedule insert failed for user " << userId
-                  << ": " << insertEx.what();
-        try {
-          dbClient->execSqlSync("ROLLBACK");
-        } catch (...) {
-        }
-        auto resp = HttpResponse::newHttpJsonResponse(
-            Json::Value("Internal server error"));
-        resp->setStatusCode(k500InternalServerError);
-        callback(resp);
-        return;
-      }
+      wsMapper.insert(ws);
 
       Json::Value outItem;
       outItem["id"] = ws.getId() ? ws.getValueOfId() : Json::Value();
@@ -284,7 +273,7 @@ void UsersController::setWorkSchedule(
       createdArr.append(outItem);
     }
 
-    dbClient->execSqlSync("COMMIT");
+    trans.reset();
 
     auto resp = HttpResponse::newHttpJsonResponse(createdArr);
     resp->setStatusCode(k201Created);
@@ -294,10 +283,6 @@ void UsersController::setWorkSchedule(
   } catch (const std::exception& e) {
     LOG_ERROR << "setWorkSchedule failed for user " << userId << ": "
               << e.what();
-    try {
-      dbClient->execSqlSync("ROLLBACK");
-    } catch (...) {
-    }
     auto resp =
         HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
     resp->setStatusCode(k500InternalServerError);

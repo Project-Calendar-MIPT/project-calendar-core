@@ -5,7 +5,7 @@
  *
  */
 
-#include "models/GlobalRoleGrant.hpp"
+#include "GlobalRoleGrant.h"
 #include <drogon/utils/Utilities.h>
 #include <string>
 
@@ -818,6 +818,11 @@ Json::Value GlobalRoleGrant::toJson() const
         ret["granted_at"]=Json::Value();
     }
     return ret;
+}
+
+std::string GlobalRoleGrant::toString() const
+{
+    return toJson().toStyledString();
 }
 
 Json::Value GlobalRoleGrant::toMasqueradedJson(

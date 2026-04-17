@@ -807,6 +807,11 @@ Json::Value ProjectAllocation::toJson() const
     return ret;
 }
 
+std::string ProjectAllocation::toString() const
+{
+    return toJson().toStyledString();
+}
+
 Json::Value ProjectAllocation::toMasqueradedJson(
     const std::vector<std::string> &pMasqueradingVector) const
 {

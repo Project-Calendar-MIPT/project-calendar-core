@@ -32,13 +32,13 @@ int main() {
     database,      // databaseName
     user,          // userName
     password,      // password
-    1,             // connectionNum
+    5,             // connectionNum
     "",            // filename (empty for postgres)
     "default",     // name
     false,         // isFast
     "",            // characterSet
-    0.0,           // timeout
-    true           // autoBatch
+    -1.0,          // timeout (no timeout)
+    false          // autoBatch - must be false so sync SELECT after trans commit works
   );
 
   // Configure HTTP server

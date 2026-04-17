@@ -5,7 +5,7 @@
  *
  */
 
-#include "models/TaskDependency.hpp"
+#include "TaskDependency.h"
 #include <drogon/utils/Utilities.h>
 #include <string>
 
@@ -505,6 +505,11 @@ Json::Value TaskDependency::toJson() const
         ret["kind"]=Json::Value();
     }
     return ret;
+}
+
+std::string TaskDependency::toString() const
+{
+    return toJson().toStyledString();
 }
 
 Json::Value TaskDependency::toMasqueradedJson(

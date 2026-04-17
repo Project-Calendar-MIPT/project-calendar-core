@@ -208,7 +208,7 @@ void ProjectController::createProject(
       return callback(resp);
     }
 
-    dbClient->execSqlSync("BEGIN");
+    auto trans = dbClient->newTransaction();
 
     drogon_model::project_calendar::Task project;
     project.setTitle(j["title"].asString());
@@ -234,7 +234,7 @@ void ProjectController::createProject(
         project.setEstimatedHours(j["estimated_hours"].asString());
       }
     }
-    drogon::orm::Mapper<drogon_model::project_calendar::Task> taskMapper(dbClient);
+    drogon::orm::Mapper<drogon_model::project_calendar::Task> taskMapper(trans);
     taskMapper.insert(project);
 
     std::string projectId;
@@ -245,7 +245,7 @@ void ProjectController::createProject(
     }
 
     if (projectId.empty()) {
-      auto idRes = dbClient->execSqlSync(
+      auto idRes = trans->execSqlSync(
           R"sql(
           SELECT id::text AS id
           FROM task
@@ -257,7 +257,6 @@ void ProjectController::createProject(
         )sql",
           requesterId, j["title"].asString());
       if (idRes.empty()) {
-        dbClient->execSqlSync("ROLLBACK");
         auto resp = HttpResponse::newHttpJsonResponse(
             Json::Value("Failed to determine inserted project id"));
         resp->setStatusCode(k500InternalServerError);
@@ -268,13 +267,13 @@ void ProjectController::createProject(
 
     if (j.isMember("start_date") && j["start_date"].isString() &&
         !j["start_date"].asString().empty()) {
-      dbClient->execSqlSync(
+      trans->execSqlSync(
           "UPDATE task SET start_date = $2::date WHERE id = $1::uuid", projectId,
           j["start_date"].asString());
     }
     if (j.isMember("due_date") && j["due_date"].isString() &&
         !j["due_date"].asString().empty()) {
-      dbClient->execSqlSync(
+      trans->execSqlSync(
           "UPDATE task SET due_date = $2::date WHERE id = $1::uuid", projectId,
           j["due_date"].asString());
     }
@@ -284,7 +283,7 @@ void ProjectController::createProject(
     ta.setUserId(ownerUserId);
     ta.setAssignedAt(::trantor::Date::now());
     drogon::orm::Mapper<drogon_model::project_calendar::TaskAssignment> taMapper(
-        dbClient);
+        trans);
     taMapper.insert(ta);
 
     drogon_model::project_calendar::TaskRoleAssignment tra;
@@ -293,17 +292,16 @@ void ProjectController::createProject(
     tra.setRole(std::string("owner"));
     tra.setAssignedAt(::trantor::Date::now());
     drogon::orm::Mapper<drogon_model::project_calendar::TaskRoleAssignment>
-        traMapper(dbClient);
+        traMapper(trans);
     traMapper.insert(tra);
 
-    dbClient->execSqlSync(
+    trans->execSqlSync(
         "INSERT INTO project_visibility (project_id, visibility) VALUES "
         "($1::uuid, $2::project_visibility_enum)",
         projectId, visibility);
 
-    dbClient->execSqlSync("COMMIT");
-
-    auto finalRes = dbClient->execSqlSync(
+    // Fetch inside transaction before commit for guaranteed visibility
+    auto finalRes = trans->execSqlSync(
         R"sql(
         SELECT t.id::text AS id,
                t.parent_task_id::text AS parent_task_id,
@@ -333,10 +331,14 @@ void ProjectController::createProject(
       )sql",
         projectId);
 
+    trans.reset();  // commit
+
     if (finalRes.empty()) {
-      auto resp = HttpResponse::newHttpJsonResponse(
-          Json::Value("Project created but cannot fetch it"));
-      resp->setStatusCode(k500InternalServerError);
+      // Project was committed — build minimal response
+      Json::Value out;
+      out["id"] = projectId;
+      auto resp = HttpResponse::newHttpJsonResponse(out);
+      resp->setStatusCode(k201Created);
       return callback(resp);
     }
 
@@ -396,10 +398,6 @@ void ProjectController::createProject(
     return callback(resp);
   } catch (const std::exception& e) {
     LOG_ERROR << "createProject failed: " << e.what();
-    try {
-      dbClient->execSqlSync("ROLLBACK");
-    } catch (...) {
-    }
     auto resp =
         HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
     resp->setStatusCode(k500InternalServerError);
@@ -1110,25 +1108,34 @@ void ProjectController::updateProject(
       return callback(resp);
     }
 
-    dbClient->execSqlSync("BEGIN");
+    if (j.isMember("visibility") && j["visibility"].isString()) {
+      const std::string vis = j["visibility"].asString();
+      if (!isAllowedVisibility(vis)) {
+        auto resp = HttpResponse::newHttpJsonResponse(Json::Value("visibility must be public or private"));
+        resp->setStatusCode(k400BadRequest);
+        return callback(resp);
+      }
+    }
+
+    auto trans = dbClient->newTransaction();
 
     if (j.isMember("title") && j["title"].isString() && !j["title"].asString().empty()) {
-      dbClient->execSqlSync("UPDATE task SET title = $2 WHERE id = $1::uuid", projectId, j["title"].asString());
+      trans->execSqlSync("UPDATE task SET title = $2 WHERE id = $1::uuid", projectId, j["title"].asString());
     }
     if (j.isMember("description") && j["description"].isString()) {
-      dbClient->execSqlSync("UPDATE task SET description = $2 WHERE id = $1::uuid", projectId, j["description"].asString());
+      trans->execSqlSync("UPDATE task SET description = $2 WHERE id = $1::uuid", projectId, j["description"].asString());
     }
     if (j.isMember("status") && j["status"].isString() && !j["status"].asString().empty()) {
-      dbClient->execSqlSync("UPDATE task SET status = $2::task_status_enum WHERE id = $1::uuid", projectId, j["status"].asString());
+      trans->execSqlSync("UPDATE task SET status = $2::task_status_enum WHERE id = $1::uuid", projectId, j["status"].asString());
     }
     if (j.isMember("priority") && j["priority"].isString() && !j["priority"].asString().empty()) {
-      dbClient->execSqlSync("UPDATE task SET priority = $2::task_priority_enum WHERE id = $1::uuid", projectId, j["priority"].asString());
+      trans->execSqlSync("UPDATE task SET priority = $2::task_priority_enum WHERE id = $1::uuid", projectId, j["priority"].asString());
     }
     if (j.isMember("start_date") && j["start_date"].isString() && !j["start_date"].asString().empty()) {
-      dbClient->execSqlSync("UPDATE task SET start_date = $2::date WHERE id = $1::uuid", projectId, j["start_date"].asString());
+      trans->execSqlSync("UPDATE task SET start_date = $2::date WHERE id = $1::uuid", projectId, j["start_date"].asString());
     }
     if (j.isMember("due_date") && j["due_date"].isString() && !j["due_date"].asString().empty()) {
-      dbClient->execSqlSync("UPDATE task SET due_date = $2::date WHERE id = $1::uuid", projectId, j["due_date"].asString());
+      trans->execSqlSync("UPDATE task SET due_date = $2::date WHERE id = $1::uuid", projectId, j["due_date"].asString());
     }
     if (j.isMember("wanted_skills") && j["wanted_skills"].isArray()) {
       std::string arr = "{";
@@ -1137,25 +1144,18 @@ void ProjectController::updateProject(
         arr += j["wanted_skills"][i].asString();
       }
       arr += "}";
-      dbClient->execSqlSync("UPDATE task SET wanted_skills = $2::text[] WHERE id = $1::uuid", projectId, arr);
+      trans->execSqlSync("UPDATE task SET wanted_skills = $2::text[] WHERE id = $1::uuid", projectId, arr);
     }
     // Always update updated_at
-    dbClient->execSqlSync("UPDATE task SET updated_at = NOW() WHERE id = $1::uuid", projectId);
+    trans->execSqlSync("UPDATE task SET updated_at = NOW() WHERE id = $1::uuid", projectId);
 
     if (j.isMember("visibility") && j["visibility"].isString()) {
-      const std::string vis = j["visibility"].asString();
-      if (!isAllowedVisibility(vis)) {
-        dbClient->execSqlSync("ROLLBACK");
-        auto resp = HttpResponse::newHttpJsonResponse(Json::Value("visibility must be public or private"));
-        resp->setStatusCode(k400BadRequest);
-        return callback(resp);
-      }
-      dbClient->execSqlSync(
+      trans->execSqlSync(
           "UPDATE project_visibility SET visibility = $2::project_visibility_enum, updated_at = NOW() WHERE project_id = $1::uuid",
-          projectId, vis);
+          projectId, j["visibility"].asString());
     }
 
-    dbClient->execSqlSync("COMMIT");
+    trans.reset();
 
     // Fetch and return the updated project
     auto res = dbClient->execSqlSync(
@@ -1221,7 +1221,6 @@ void ProjectController::updateProject(
     return callback(resp);
   } catch (const std::exception& e) {
     LOG_ERROR << "updateProject failed: " << e.what();
-    try { dbClient->execSqlSync("ROLLBACK"); } catch (...) {}
     auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
     resp->setStatusCode(k500InternalServerError);
     return callback(resp);
@@ -1556,9 +1555,9 @@ void ProjectController::approveApplication(
     const std::string inviteeId = invRes[0]["invitee_user_id"].as<std::string>();
 
     // Transaction: update invitation + add member
-    dbClient->execSqlSync("BEGIN");
+    auto trans = dbClient->newTransaction();
 
-    dbClient->execSqlSync(
+    trans->execSqlSync(
         R"sql(
         UPDATE project_invitation
         SET status = 'approved', decided_at = NOW(), decided_by = $2::uuid
@@ -1566,7 +1565,7 @@ void ProjectController::approveApplication(
         )sql",
         applicationId, requesterId);
 
-    dbClient->execSqlSync(
+    trans->execSqlSync(
         R"sql(
         INSERT INTO task_assignment (task_id, user_id)
         VALUES ($1::uuid, $2::uuid)
@@ -1574,7 +1573,7 @@ void ProjectController::approveApplication(
         )sql",
         projectId, inviteeId);
 
-    dbClient->execSqlSync(
+    trans->execSqlSync(
         R"sql(
         INSERT INTO task_role_assignment (task_id, user_id, role)
         VALUES ($1::uuid, $2::uuid, 'executor')
@@ -1582,7 +1581,7 @@ void ProjectController::approveApplication(
         )sql",
         projectId, inviteeId);
 
-    dbClient->execSqlSync("COMMIT");
+    trans.reset();
 
     Json::Value out(Json::objectValue);
     out["approved"] = true;
@@ -1592,7 +1591,6 @@ void ProjectController::approveApplication(
     return callback(resp);
   } catch (const std::exception& e) {
     LOG_ERROR << "approveApplication failed: " << e.what();
-    try { dbClient->execSqlSync("ROLLBACK"); } catch (...) {}
     auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
     resp->setStatusCode(k500InternalServerError);
     return callback(resp);

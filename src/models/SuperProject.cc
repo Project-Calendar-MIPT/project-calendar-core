@@ -615,6 +615,11 @@ Json::Value SuperProject::toJson() const
     return ret;
 }
 
+std::string SuperProject::toString() const
+{
+    return toJson().toStyledString();
+}
+
 Json::Value SuperProject::toMasqueradedJson(
     const std::vector<std::string> &pMasqueradingVector) const
 {
