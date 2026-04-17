@@ -295,14 +295,8 @@ void TaskController::createTask(
         return callback(resp);
       }
       parentId = j["parent_task_id"].asString();
-      auto parentRes = trans->execSqlSync(
-          "SELECT id FROM \"task\" WHERE id = $1 LIMIT 1", *parentId);
-      if (parentRes.empty()) {
-        auto resp = HttpResponse::newHttpJsonResponse(
-            Json::Value("parent_task_id not found"));
-        resp->setStatusCode(k400BadRequest);
-        return callback(resp);
-      }
+      // No explicit existence check — FK constraint in INSERT handles this.
+      // Avoids race condition with recently-committed parent tasks.
     }
 
     // Validate task dates against project dates
@@ -320,46 +314,45 @@ void TaskController::createTask(
       }
     }
 
-    drogon_model::project_calendar::Task task;
-    try {
-      task.updateByJson(j);
-    } catch (...) {
-    }
-    if (parentId)
-      task.setParentTaskId(*parentId);
-    else
-      task.setParentTaskIdToNull();
+    // Extract fields from JSON
+    const std::string title = j["title"].asString();
+    const std::string description =
+        j.isMember("description") && j["description"].isString() ? j["description"].asString() : "";
+    const std::string priority =
+        j.isMember("priority") && j["priority"].isString() ? j["priority"].asString() : "normal";
+    const std::string statusVal = shouldAutoPromoteToInProgress ? std::string("in_progress")
+        : (j.isMember("status") && j["status"].isString() ? j["status"].asString() : std::string("open"));
+    const double estimatedHours =
+        (j.isMember("estimated_hours") && j["estimated_hours"].isNumeric())
+        ? j["estimated_hours"].asDouble() : 0.0;
+    const std::string parentIdStr = parentId ? *parentId : "";
+    const std::string startDateStr =
+        (j.isMember("start_date") && j["start_date"].isString()) ? j["start_date"].asString() : "";
+    const std::string dueDateStr =
+        (j.isMember("due_date") && j["due_date"].isString()) ? j["due_date"].asString() : "";
 
-    if (shouldAutoPromoteToInProgress) {
-      task.setStatus(std::string("in_progress"));
-    }
+    // Use raw INSERT ... RETURNING id to reliably get the new task ID
+    auto insertRes = trans->execSqlSync(
+        R"sql(
+        INSERT INTO "task" (title, description, priority, status, estimated_hours,
+                            created_by, parent_task_id, start_date, due_date, created_at, updated_at)
+        VALUES ($1, $2, $3::task_priority_enum, $4::task_status_enum, $5, $6::uuid,
+                NULLIF($7, '')::uuid,
+                NULLIF($8, '')::date,
+                NULLIF($9, '')::date,
+                NOW(), NOW())
+        RETURNING id
+        )sql",
+        title, description, priority, statusVal,
+        std::to_string(estimatedHours), userId,
+        parentIdStr, startDateStr, dueDateStr);
 
-    task.setCreatedBy(userId);
-    task.setCreatedAt(::trantor::Date::now());
-    task.setUpdatedAt(::trantor::Date::now());
-
-    drogon::orm::Mapper<drogon_model::project_calendar::Task> taskMapper(trans);
-    taskMapper.insert(task);
-
-    std::string taskId;
-    try {
-      taskId = task.getValueOfId();
-    } catch (...) {
-      taskId.clear();
+    if (insertRes.empty()) {
+      auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Failed to create task"));
+      resp->setStatusCode(k500InternalServerError);
+      return callback(resp);
     }
-    if (taskId.empty()) {
-      auto res = trans->execSqlSync(
-          "SELECT id FROM \"task\" WHERE created_by = $1 AND title = $2 "
-          "ORDER BY created_at DESC LIMIT 1",
-          userId, task.getValueOfTitle());
-      if (res.empty()) {
-        auto resp = HttpResponse::newHttpJsonResponse(
-            Json::Value("Failed to determine inserted task id"));
-        resp->setStatusCode(k500InternalServerError);
-        return callback(resp);
-      }
-      taskId = res[0]["id"].as<std::string>();
-    }
+    const std::string taskId = insertRes[0]["id"].as<std::string>();
 
     drogon_model::project_calendar::TaskAssignment ta;
     ta.setTaskId(taskId);
@@ -422,7 +415,16 @@ void TaskController::createTask(
     return callback(resp);
 
   } catch (const std::exception& e) {
-    LOG_ERROR << "createTask failed: " << e.what();
+    const std::string what = e.what() ? e.what() : "";
+    LOG_ERROR << "createTask failed: " << what;
+    // Foreign key violation: parent_task_id does not exist
+    if (what.find("foreign key") != std::string::npos ||
+        what.find("violates foreign") != std::string::npos) {
+      auto resp = HttpResponse::newHttpJsonResponse(
+          Json::Value("parent_task_id not found"));
+      resp->setStatusCode(k400BadRequest);
+      return callback(resp);
+    }
     auto resp =
         HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
     resp->setStatusCode(k500InternalServerError);
