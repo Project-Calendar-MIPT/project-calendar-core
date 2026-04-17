@@ -9,7 +9,7 @@
 #include <trantor/utils/Logger.h>
 
 #include <algorithm>
-#include <bcrypt/BCrypt.hpp>
+#include <bcrypt.h>
 #include <cctype>
 #include <cstdlib>
 #include <exception>
@@ -131,7 +131,7 @@ void AuthController::registerUser(
       return;
     }
 
-    const std::string hash = BCrypt::generateHash(password);
+    const std::string hash = bcrypt::generateHash(password);
 
     auto trans = dbClient->newTransaction();
 
@@ -321,7 +321,7 @@ void AuthController::login(
           }
           const std::string passHash = row["password_hash"].as<std::string>();
 
-          bool ok = BCrypt::validatePassword(password, passHash);
+          bool ok = bcrypt::validatePassword(password, passHash);
           if (!ok) {
             auto resp =
                 HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
