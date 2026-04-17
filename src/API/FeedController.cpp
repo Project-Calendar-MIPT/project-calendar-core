@@ -30,12 +30,12 @@ void FeedController::getRecommendedProjects(
                t.start_date::text AS start_date,
                t.due_date::text AS due_date,
                t.wanted_skills,
-               COUNT(us.skill_key) AS match_score
+               COUNT(us.name) AS match_score
         FROM task t
         JOIN project_visibility pv ON pv.project_id = t.id
         LEFT JOIN user_skill us
           ON us.user_id = $1::uuid
-         AND us.skill_key = ANY(t.wanted_skills)
+         AND us.name = ANY(t.wanted_skills)
         WHERE t.parent_task_id IS NULL
           AND pv.visibility = 'public'
           AND NOT EXISTS (
