@@ -320,46 +320,47 @@ void TaskController::createTask(
       }
     }
 
-    drogon_model::project_calendar::Task task;
-    try {
-      task.updateByJson(j);
-    } catch (...) {
-    }
-    if (parentId)
-      task.setParentTaskId(*parentId);
-    else
-      task.setParentTaskIdToNull();
-
+    // Extract task fields from JSON
+    const std::string title = j["title"].asString();
+    const std::string description = j["description"].isString() ? j["description"].asString() : "";
+    std::string priority = j.isMember("priority") && j["priority"].isString() ? j["priority"].asString() : "normal";
+    std::string status = "open";
     if (shouldAutoPromoteToInProgress) {
-      task.setStatus(std::string("in_progress"));
+      status = "in_progress";
+    } else if (j.isMember("status") && j["status"].isString()) {
+      status = j["status"].asString();
     }
+    const double estimatedHours = (j.isMember("estimated_hours") && j["estimated_hours"].isNumeric())
+        ? j["estimated_hours"].asDouble() : 0.0;
 
-    task.setCreatedBy(userId);
-    task.setCreatedAt(::trantor::Date::now());
-    task.setUpdatedAt(::trantor::Date::now());
+    // Use raw SQL INSERT RETURNING to reliably get the new task ID
+    // All optional fields passed as NULL strings handled via NULLIF
+    const std::string parentIdStr = parentId ? *parentId : "";
+    const std::string startDateStr = payloadStartDate;
+    const std::string dueDateStr = payloadDueDate;
 
-    drogon::orm::Mapper<drogon_model::project_calendar::Task> taskMapper(trans);
-    taskMapper.insert(task);
+    auto insertRes = trans->execSqlSync(
+        R"sql(
+        INSERT INTO "task" (title, description, priority, status, estimated_hours, created_by,
+                            parent_task_id, start_date, due_date, created_at, updated_at)
+        VALUES ($1, $2, $3::task_priority_enum, $4::task_status_enum, $5, $6,
+                NULLIF($7, '')::uuid,
+                NULLIF($8, '')::date,
+                NULLIF($9, '')::date,
+                NOW(), NOW())
+        RETURNING id
+        )sql",
+        title, description, priority, status,
+        std::to_string(estimatedHours), userId,
+        parentIdStr, startDateStr, dueDateStr);
 
-    std::string taskId;
-    try {
-      taskId = task.getValueOfId();
-    } catch (...) {
-      taskId.clear();
+    if (insertRes.empty()) {
+      auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Failed to insert task"));
+      resp->setStatusCode(k500InternalServerError);
+      return callback(resp);
     }
-    if (taskId.empty()) {
-      auto res = trans->execSqlSync(
-          "SELECT id FROM \"task\" WHERE created_by = $1 AND title = $2 "
-          "ORDER BY created_at DESC LIMIT 1",
-          userId, task.getValueOfTitle());
-      if (res.empty()) {
-        auto resp = HttpResponse::newHttpJsonResponse(
-            Json::Value("Failed to determine inserted task id"));
-        resp->setStatusCode(k500InternalServerError);
-        return callback(resp);
-      }
-      taskId = res[0]["id"].as<std::string>();
-    }
+    std::string taskId = insertRes[0]["id"].as<std::string>();
+    LOG_INFO << "createTask: inserted taskId = " << taskId;
 
     drogon_model::project_calendar::TaskAssignment ta;
     ta.setTaskId(taskId);
@@ -399,9 +400,8 @@ void TaskController::createTask(
       }
     }
 
-    trans.reset();
-
-    auto finalRes = dbClient->execSqlSync(
+    // Fetch created task inside the transaction (before commit) for guaranteed visibility
+    auto finalRes = trans->execSqlSync(
         R"sql(
         SELECT id, parent_task_id, title, description, priority, status, estimated_hours,
                start_date::text AS start_date, due_date::text AS due_date,
@@ -409,10 +409,19 @@ void TaskController::createTask(
         FROM "task" WHERE id = $1 LIMIT 1
       )sql",
         taskId);
+
+    trans.reset();  // commit transaction
+
     if (finalRes.empty()) {
-      auto resp = HttpResponse::newHttpJsonResponse(
-          Json::Value("Task created but cannot fetch it"));
-      resp->setStatusCode(k500InternalServerError);
+      // Task was committed, build minimal response from available data
+      Json::Value out;
+      out["id"] = taskId;
+      out["title"] = task.getValueOfTitle();
+      out["description"] = task.getValueOfDescription();
+      out["priority"] = task.getValueOfPriority();
+      out["status"] = task.getValueOfStatus();
+      auto resp = HttpResponse::newHttpJsonResponse(out);
+      resp->setStatusCode(k201Created);
       return callback(resp);
     }
     drogon_model::project_calendar::Task created(finalRes[0], -1);
