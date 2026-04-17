@@ -867,18 +867,19 @@ void TaskController::getCandidateAssignees(
           )
           SELECT COALESCE(
                    SUM(
-                     CASE
-                       WHEN us.proficiency >= 3 THEN 1.0 + (us.proficiency - 3) * 0.25
+                     CASE us.experience_level
+                       WHEN 'senior' THEN 1.25
+                       WHEN 'middle' THEN 1.0
                        ELSE 0.5
                      END
                    ),
                    0.0
                  ) AS skill_score,
-                 COUNT(us.skill_key) AS matched_skills
+                 COUNT(us.name) AS matched_skills
           FROM req
           LEFT JOIN user_skill us
             ON us.user_id = $1::uuid
-           AND lower(us.skill_key) = lower(req.skill)
+           AND lower(us.name) = lower(req.skill)
         )sql",
           candidateUserId, requiredSkillsCsv);
 
