@@ -399,24 +399,24 @@ void TaskController::createTask(
       }
     }
 
-    trans.reset();
-
-    auto finalRes = dbClient->execSqlSync(
+    // Fetch created task INSIDE the transaction before commit (guaranteed visibility)
+    auto finalRes = trans->execSqlSync(
         R"sql(
         SELECT id, parent_task_id, title, description, priority, status, estimated_hours,
                start_date::text AS start_date, due_date::text AS due_date,
-               project_root_id, created_by, created_at::text AS created_at, updated_at::text AS updated_at
+               project_root_id, created_by, created_at::text AS created_at, updated_at::text AS updated_at,
+               wanted_skills
         FROM "task" WHERE id = $1 LIMIT 1
       )sql",
         taskId);
-    if (finalRes.empty()) {
-      auto resp = HttpResponse::newHttpJsonResponse(
-          Json::Value("Task created but cannot fetch it"));
-      resp->setStatusCode(k500InternalServerError);
-      return callback(resp);
+
+    trans.reset();  // commit transaction
+
+    drogon_model::project_calendar::Task created;
+    if (!finalRes.empty()) {
+      created = drogon_model::project_calendar::Task(finalRes[0], -1);
     }
-    drogon_model::project_calendar::Task created(finalRes[0], -1);
-    auto out = created.toJson();
+    auto out = finalRes.empty() ? Json::Value(Json::objectValue) : created.toJson();
     auto resp = HttpResponse::newHttpJsonResponse(out);
     resp->setStatusCode(k201Created);
     return callback(resp);
@@ -1038,7 +1038,8 @@ void TaskController::updateTask(
         R"sql(
         SELECT id, parent_task_id, title, description, priority, status, estimated_hours,
                start_date::text AS start_date, due_date::text AS due_date,
-               project_root_id, created_by, created_at::text AS created_at, updated_at::text AS updated_at
+               project_root_id, created_by, created_at::text AS created_at, updated_at::text AS updated_at,
+               wanted_skills
         FROM "task" WHERE id = $1 LIMIT 1
       )sql",
         taskId);
@@ -1215,7 +1216,8 @@ void TaskController::updateTask(
         R"sql(
         SELECT id, parent_task_id, title, description, priority, status, estimated_hours,
                start_date::text AS start_date, due_date::text AS due_date,
-               project_root_id, created_by, created_at::text AS created_at, updated_at::text AS updated_at
+               project_root_id, created_by, created_at::text AS created_at, updated_at::text AS updated_at,
+               wanted_skills
         FROM "task" WHERE id = $1 LIMIT 1
       )sql",
         taskId);
