@@ -57,6 +57,7 @@ class Task
         static const std::string _created_by;
         static const std::string _created_at;
         static const std::string _updated_at;
+        static const std::string _wanted_skills;
     };
 
     static const int primaryKeyNumber;
@@ -229,11 +230,22 @@ class Task
     ///Set the value of the column updated_at
     void setUpdatedAt(const ::trantor::Date &pUpdatedAt) noexcept;
 
+    /**  For column wanted_skills  */
+    ///Get the value of the column wanted_skills, returns the default value if the column is null
+    const std::string &getValueOfWantedSkills() const noexcept;
+    ///Return a shared_ptr object pointing to the column const value, or an empty shared_ptr object if the column is null
+    const std::shared_ptr<std::string> &getWantedSkills() const noexcept;
+    ///Set the value of the column wanted_skills
+    void setWantedSkills(const std::string &pWantedSkills) noexcept;
+    void setWantedSkills(std::string &&pWantedSkills) noexcept;
+    void setWantedSkillsToNull() noexcept;
 
-    static size_t getColumnNumber() noexcept {  return 13;  }
+
+    static size_t getColumnNumber() noexcept {  return 14;  }
     static const std::string &getColumnName(size_t index) noexcept(false);
 
     Json::Value toJson() const;
+    std::string toString() const;
     Json::Value toMasqueradedJson(const std::vector<std::string> &pMasqueradingVector) const;
     /// Relationship interfaces
   private:
@@ -264,6 +276,7 @@ class Task
     std::shared_ptr<std::string> createdBy_;
     std::shared_ptr<::trantor::Date> createdAt_;
     std::shared_ptr<::trantor::Date> updatedAt_;
+    std::shared_ptr<std::string> wantedSkills_;
     struct MetaData
     {
         const std::string colName_;
@@ -275,7 +288,7 @@ class Task
         const bool notNull_;
     };
     static const std::vector<MetaData> metaData_;
-    bool dirtyFlag_[13]={ false };
+    bool dirtyFlag_[14]={ false };
   public:
     static const std::string &sqlForFindingByPrimaryKey()
     {
@@ -361,6 +374,12 @@ class Task
         sql += "updated_at,";
         ++parametersCount;
         if(!dirtyFlag_[12])
+        {
+            needSelection=true;
+        }
+        sql += "wanted_skills,";
+        ++parametersCount;
+        if(!dirtyFlag_[13])
         {
             needSelection=true;
         }
@@ -456,6 +475,15 @@ class Task
             sql +="default,";
         }
         if(dirtyFlag_[12])
+        {
+            n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
+            sql.append(placeholderStr, n);
+        }
+        else
+        {
+            sql +="default,";
+        }
+        if(dirtyFlag_[13])
         {
             n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
             sql.append(placeholderStr, n);

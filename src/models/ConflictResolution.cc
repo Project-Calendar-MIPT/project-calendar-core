@@ -1438,6 +1438,11 @@ Json::Value ConflictResolution::toJson() const
     return ret;
 }
 
+std::string ConflictResolution::toString() const
+{
+    return toJson().toStyledString();
+}
+
 Json::Value ConflictResolution::toMasqueradedJson(
     const std::vector<std::string> &pMasqueradingVector) const
 {

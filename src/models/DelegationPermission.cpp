@@ -5,7 +5,7 @@
  *
  */
 
-#include "models/DelegationPermission.hpp"
+#include "DelegationPermission.h"
 #include <drogon/utils/Utilities.h>
 #include <string>
 
@@ -500,6 +500,11 @@ Json::Value DelegationPermission::toJson() const
         ret["allow"]=Json::Value();
     }
     return ret;
+}
+
+std::string DelegationPermission::toString() const
+{
+    return toJson().toStyledString();
 }
 
 Json::Value DelegationPermission::toMasqueradedJson(

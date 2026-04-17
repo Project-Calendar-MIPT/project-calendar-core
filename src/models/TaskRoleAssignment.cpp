@@ -5,7 +5,7 @@
  *
  */
 
-#include "models/TaskRoleAssignment.hpp"
+#include "TaskRoleAssignment.h"
 #include <drogon/utils/Utilities.h>
 #include <string>
 
@@ -708,6 +708,11 @@ Json::Value TaskRoleAssignment::toJson() const
         ret["assigned_at"]=Json::Value();
     }
     return ret;
+}
+
+std::string TaskRoleAssignment::toString() const
+{
+    return toJson().toStyledString();
 }
 
 Json::Value TaskRoleAssignment::toMasqueradedJson(

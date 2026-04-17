@@ -5,7 +5,7 @@
  *
  */
 
-#include "models/RolePermission.hpp"
+#include "RolePermission.h"
 #include <drogon/utils/Utilities.h>
 #include <string>
 
@@ -500,6 +500,11 @@ Json::Value RolePermission::toJson() const
         ret["is_global"]=Json::Value();
     }
     return ret;
+}
+
+std::string RolePermission::toString() const
+{
+    return toJson().toStyledString();
 }
 
 Json::Value RolePermission::toMasqueradedJson(

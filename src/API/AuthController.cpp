@@ -1,6 +1,5 @@
 #include "API/AuthController.h"
 
-#include <bcrypt.h>
 #include <drogon/drogon.h>
 #include <drogon/orm/DbClient.h>
 #include <drogon/orm/Mapper.h>
@@ -10,6 +9,7 @@
 #include <trantor/utils/Logger.h>
 
 #include <algorithm>
+#include <bcrypt/BCrypt.hpp>
 #include <cctype>
 #include <cstdlib>
 #include <exception>
@@ -17,10 +17,14 @@
 #include <utility>
 
 #include "models/AppUser.h"
+#include "models/UserSkill.h"
 #include "models/UserWorkSchedule.h"
 
 using drogon_model::project_calendar::AppUser;
+using drogon_model::project_calendar::UserSkill;
 using drogon_model::project_calendar::UserWorkSchedule;
+
+static constexpr int kTokenExpiryDays = 7;
 
 static bool containsCaseInsensitive(const std::string& hay,
                                     const std::string& needle) {
@@ -51,10 +55,9 @@ void AuthController::registerUser(
   }
   const Json::Value& j = *jsonPtr;
 
-  if (!j.isMember("email") || !j.isMember("password") ||
-      !j.isMember("display_name") || !j.isMember("work_schedule")) {
+  if (!j.isMember("email") || !j.isMember("password")) {
     auto resp = HttpResponse::newHttpJsonResponse(
-        Json::Value("Missing required fields"));
+        Json::Value("Missing required fields: email and password"));
     resp->setStatusCode(k400BadRequest);
     callback(resp);
     return;
@@ -62,27 +65,55 @@ void AuthController::registerUser(
 
   const std::string email = j["email"].asString();
   const std::string password = j["password"].asString();
-  const std::string displayName = j["display_name"].asString();
-  const std::string name = j.isMember("name") ? j["name"].asString() : "";
-  const std::string surname =
-      j.isMember("surname") ? j["surname"].asString() : "";
+
+  const std::string name = j.isMember("name") ? j["name"].asString()
+                           : j.isMember("first_name")
+                               ? j["first_name"].asString()
+                               : "";
+  const std::string surname = j.isMember("surname") ? j["surname"].asString()
+                              : j.isMember("last_name")
+                                  ? j["last_name"].asString()
+                                  : "";
+  const std::string middleName =
+      j.isMember("middle_name") ? j["middle_name"].asString() : "";
+
+  std::string displayName;
+  if (j.isMember("display_name") && j["display_name"].isString() &&
+      !j["display_name"].asString().empty()) {
+    displayName = j["display_name"].asString();
+  } else if (!name.empty() || !surname.empty()) {
+    displayName = name + (name.empty() || surname.empty() ? "" : " ") + surname;
+    displayName.erase(0, displayName.find_first_not_of(" "));
+    displayName.erase(displayName.find_last_not_of(" ") + 1);
+  } else {
+    displayName = email.substr(0, email.find('@'));
+  }
+
   const std::string phone = j.isMember("phone") ? j["phone"].asString() : "";
   const std::string telegram =
       j.isMember("telegram") ? j["telegram"].asString() : "";
   const std::string locale = j.isMember("locale") ? j["locale"].asString() : "";
-  const Json::Value workScheduleJson = j["work_schedule"];
+
+  const std::string timezone =
+      j.isMember("timezone") ? j["timezone"].asString() : "Europe/Moscow";
+  const bool contactsVisible =
+      j.isMember("contacts_visible") ? j["contacts_visible"].asBool() : true;
+  const std::string experienceLevel =
+      j.isMember("experience_level") ? j["experience_level"].asString() : "";
+
+  Json::Value workScheduleJson(Json::arrayValue);
+  if (j.isMember("work_schedule") && j["work_schedule"].isArray()) {
+    workScheduleJson = j["work_schedule"];
+  }
+
+  Json::Value stackJson(Json::arrayValue);
+  if (j.isMember("stack") && j["stack"].isArray()) {
+    stackJson = j["stack"];
+  }
 
   if (password.size() < 8) {
     auto resp = HttpResponse::newHttpJsonResponse(
         Json::Value("Password must be at least 8 characters"));
-    resp->setStatusCode(k400BadRequest);
-    callback(resp);
-    return;
-  }
-
-  if (!workScheduleJson.isArray() || workScheduleJson.size() == 0) {
-    auto resp = HttpResponse::newHttpJsonResponse(
-        Json::Value("work_schedule must be a non-empty array"));
     resp->setStatusCode(k400BadRequest);
     callback(resp);
     return;
@@ -100,9 +131,9 @@ void AuthController::registerUser(
       return;
     }
 
-    const std::string hash = bcrypt::generateHash(password);
+    const std::string hash = BCrypt::generateHash(password);
 
-    dbClient->execSqlSync("BEGIN");
+    auto trans = dbClient->newTransaction();
 
     AppUser user;
     user.setEmail(email);
@@ -110,13 +141,19 @@ void AuthController::registerUser(
     user.setDisplayName(displayName);
     if (!name.empty()) user.setName(name);
     if (!surname.empty()) user.setSurname(surname);
+    if (!middleName.empty()) user.setMiddleName(middleName);
     if (!phone.empty()) user.setPhone(phone);
     if (!telegram.empty()) user.setTelegram(telegram);
     if (!locale.empty()) user.setLocale(locale);
+
+    user.setTimezone(timezone);
+    user.setContactsVisible(contactsVisible);
+    if (!experienceLevel.empty()) user.setExperienceLevel(experienceLevel);
+
     user.setCreatedAt(::trantor::Date::now());
     user.setUpdatedAt(::trantor::Date::now());
 
-    drogon::orm::Mapper<AppUser> usersMapper(dbClient);
+    drogon::orm::Mapper<AppUser> usersMapper(trans);
     usersMapper.insert(user);
 
     std::string createdUserId;
@@ -125,11 +162,12 @@ void AuthController::registerUser(
     } catch (...) {
       createdUserId.clear();
     }
+
     if (createdUserId.empty()) {
-      auto idRes = dbClient->execSqlSync(
+      auto idRes = trans->execSqlSync(
           "SELECT id FROM app_user WHERE email = $1 LIMIT 1", email);
       if (idRes.size() == 0) {
-        dbClient->execSqlSync("ROLLBACK");
+        trans->rollback();
         LOG_ERROR
             << "registerUser: inserted user but cannot determine id for email "
             << email;
@@ -142,38 +180,43 @@ void AuthController::registerUser(
       createdUserId = idRes[0]["id"].as<std::string>();
     }
 
-    drogon::orm::Mapper<UserWorkSchedule> wsMapper(dbClient);
-    for (Json::UInt i = 0; i < workScheduleJson.size(); ++i) {
-      const Json::Value item = workScheduleJson[i];
-      if (!item.isObject()) {
-        dbClient->execSqlSync("ROLLBACK");
-        auto resp = HttpResponse::newHttpJsonResponse(
-            Json::Value("Invalid work_schedule item"));
-        resp->setStatusCode(k400BadRequest);
-        callback(resp);
-        return;
+    if (!workScheduleJson.empty()) {
+      drogon::orm::Mapper<UserWorkSchedule> wsMapper(trans);
+      for (Json::UInt i = 0; i < workScheduleJson.size(); ++i) {
+        const Json::Value item = workScheduleJson[i];
+        if (!item.isObject() || !item.isMember("weekday")) continue;
+
+        UserWorkSchedule ws;
+        ws.setUserId(createdUserId);
+        ws.setWeekday(static_cast<int32_t>(item["weekday"].asInt()));
+        if (item.isMember("start_time") && item["start_time"].isString()) {
+          ws.setStartTime(item["start_time"].asString());
+        }
+        if (item.isMember("end_time") && item["end_time"].isString()) {
+          ws.setEndTime(item["end_time"].asString());
+        }
+        wsMapper.insert(ws);
       }
-      if (!item.isMember("weekday")) {
-        dbClient->execSqlSync("ROLLBACK");
-        auto resp = HttpResponse::newHttpJsonResponse(
-            Json::Value("Each work_schedule item must contain weekday"));
-        resp->setStatusCode(k400BadRequest);
-        callback(resp);
-        return;
-      }
-      UserWorkSchedule ws;
-      ws.setUserId(createdUserId);
-      ws.setWeekday(static_cast<int32_t>(item["weekday"].asInt()));
-      if (item.isMember("start_time") && item["start_time"].isString()) {
-        ws.setStartTime(item["start_time"].asString());
-      }
-      if (item.isMember("end_time") && item["end_time"].isString()) {
-        ws.setEndTime(item["end_time"].asString());
-      }
-      wsMapper.insert(ws);
     }
 
-    dbClient->execSqlSync("COMMIT");
+    if (!stackJson.empty()) {
+      drogon::orm::Mapper<UserSkill> skillMapper(trans);
+      for (Json::UInt i = 0; i < stackJson.size(); ++i) {
+        const Json::Value item = stackJson[i];
+        if (!item.isObject() || !item.isMember("name")) continue;
+
+        UserSkill skill;
+        skill.setUserId(createdUserId);
+        skill.setName(item["name"].asString());
+        if (item.isMember("experience_level") &&
+            item["experience_level"].isString()) {
+          skill.setExperienceLevel(item["experience_level"].asString());
+        }
+        skillMapper.insert(skill);
+      }
+    }
+
+    trans.reset();
 
     const std::string token =
         jwt::create()
@@ -181,36 +224,43 @@ void AuthController::registerUser(
             .set_type("JWT")
             .set_payload_claim("user_id", jwt::claim(createdUserId))
             .set_expires_at(std::chrono::system_clock::now() +
-                            std::chrono::hours{24 * 7})
+                            std::chrono::hours{24 * kTokenExpiryDays})
             .sign(jwt::algorithm::hs256{getJwtSecret()});
 
     Json::Value response;
     response["success"] = true;
     response["token"] = token;
+
     Json::Value userJson;
     userJson["id"] = createdUserId;
     userJson["email"] = email;
     userJson["display_name"] = displayName;
     if (!name.empty()) userJson["name"] = name;
     if (!surname.empty()) userJson["surname"] = surname;
+    if (!middleName.empty()) userJson["middle_name"] = middleName;
+
+    userJson["timezone"] = timezone;
+    userJson["contacts_visible"] = contactsVisible;
+    if (!experienceLevel.empty())
+      userJson["experience_level"] = experienceLevel;
+    if (!stackJson.empty()) userJson["stack"] = stackJson;
+
     response["user"] = userJson;
-    response["work_schedule"] = workScheduleJson;
+    if (!workScheduleJson.empty()) {
+      response["work_schedule"] = workScheduleJson;
+    }
 
     auto resp = HttpResponse::newHttpJsonResponse(response);
     resp->setStatusCode(k201Created);
     callback(resp);
     return;
   } catch (const std::exception& e) {
-    try {
-      dbClient->execSqlSync("ROLLBACK");
-    } catch (...) {
-    }
     const std::string what = e.what() ? e.what() : std::string();
     if (containsCaseInsensitive(what, "duplicate") ||
         containsCaseInsensitive(what, "unique")) {
-      LOG_WARN << "registerUser conflict (email): " << what;
+      LOG_WARN << "registerUser conflict (email/skill): " << what;
       auto resp = HttpResponse::newHttpJsonResponse(
-          Json::Value("Email already exists"));
+          Json::Value("Email or constraint conflict"));
       resp->setStatusCode(k409Conflict);
       callback(resp);
       return;
@@ -248,7 +298,6 @@ void AuthController::login(
   const std::string password = j["password"].asString();
 
   auto dbClient = app().getDbClient();
-
   auto callbackCopy = std::move(callback);
 
   std::function<void(const drogon::orm::Result&)> loginResultCb =
@@ -272,7 +321,7 @@ void AuthController::login(
           }
           const std::string passHash = row["password_hash"].as<std::string>();
 
-          bool ok = bcrypt::validatePassword(password, passHash);
+          bool ok = BCrypt::validatePassword(password, passHash);
           if (!ok) {
             auto resp =
                 HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
@@ -293,7 +342,7 @@ void AuthController::login(
 
           using namespace std::chrono;
           const auto now = system_clock::now();
-          const auto expires = now + hours(24);
+          const auto expires = now + hours(24 * kTokenExpiryDays);
 
           const std::string token =
               jwt::create()
@@ -379,11 +428,10 @@ void AuthController::me(
     }
 
     auto dbClient = app().getDbClient();
-
     auto callbackCopy = std::move(callback);
 
     std::function<void(const drogon::orm::Result&)> meResultCb =
-        [callbackCopy](const drogon::orm::Result& r) {
+        [callbackCopy, dbClient, userId](const drogon::orm::Result& r) {
           try {
             if (r.size() == 0) {
               auto resp = HttpResponse::newHttpJsonResponse(
@@ -392,20 +440,76 @@ void AuthController::me(
               callbackCopy(resp);
               return;
             }
+
             const auto& row = r[0];
             Json::Value userJson;
             userJson["id"] = row["id"].as<std::string>();
+
             if (!row["display_name"].isNull())
               userJson["display_name"] = row["display_name"].as<std::string>();
             if (!row["email"].isNull())
               userJson["email"] = row["email"].as<std::string>();
+            if (!row["name"].isNull())
+              userJson["name"] = row["name"].as<std::string>();
+            if (!row["surname"].isNull())
+              userJson["surname"] = row["surname"].as<std::string>();
+            if (!row["middle_name"].isNull())
+              userJson["middle_name"] = row["middle_name"].as<std::string>();
+            if (!row["phone"].isNull())
+              userJson["phone"] = row["phone"].as<std::string>();
+            if (!row["telegram"].isNull())
+              userJson["telegram"] = row["telegram"].as<std::string>();
+            if (!row["locale"].isNull())
+              userJson["locale"] = row["locale"].as<std::string>();
+            if (!row["timezone"].isNull())
+              userJson["timezone"] = row["timezone"].as<std::string>();
+            if (!row["contacts_visible"].isNull())
+              userJson["contacts_visible"] = row["contacts_visible"].as<bool>();
+            if (!row["experience_level"].isNull())
+              userJson["experience_level"] =
+                  row["experience_level"].as<std::string>();
+
             if (!row["created_at"].isNull())
               userJson["created_at"] = row["created_at"].as<std::string>();
             if (!row["updated_at"].isNull())
               userJson["updated_at"] = row["updated_at"].as<std::string>();
-            auto resp = HttpResponse::newHttpJsonResponse(userJson);
-            resp->setStatusCode(k200OK);
-            callbackCopy(resp);
+
+            dbClient->execSqlAsync(
+                "SELECT name, experience_level FROM user_skill WHERE user_id = "
+                "$1",
+                [callbackCopy,
+                 userJson](const drogon::orm::Result& skillRes) mutable {
+                  Json::Value stackJson(Json::arrayValue);
+                  for (const auto& skillRow : skillRes) {
+                    Json::Value skillItem;
+                    skillItem["name"] = skillRow["name"].as<std::string>();
+                    if (!skillRow["experience_level"].isNull()) {
+                      skillItem["experience_level"] =
+                          skillRow["experience_level"].as<std::string>();
+                    }
+                    stackJson.append(skillItem);
+                  }
+
+                  userJson["stack"] = stackJson;
+
+                  auto resp = HttpResponse::newHttpJsonResponse(userJson);
+                  resp->setStatusCode(k200OK);
+                  callbackCopy(resp);
+                },
+                [callbackCopy](const std::exception_ptr& ep) {
+                  try {
+                    if (ep) std::rethrow_exception(ep);
+                  } catch (const std::exception& e) {
+                    LOG_ERROR << "DB error fetching skills in me handler: "
+                              << e.what();
+                  }
+                  auto resp = HttpResponse::newHttpJsonResponse(
+                      Json::Value("Internal server error"));
+                  resp->setStatusCode(k500InternalServerError);
+                  callbackCopy(resp);
+                },
+                userId);
+
           } catch (const std::exception& ex) {
             LOG_ERROR << "me handler DB callback failed: " << ex.what();
             auto resp = HttpResponse::newHttpJsonResponse(
@@ -426,8 +530,10 @@ void AuthController::me(
     };
 
     dbClient->execSqlAsync(
-        "SELECT id, display_name, email, created_at::text AS created_at, "
-        "updated_at::text AS updated_at "
+        "SELECT id, display_name, email, name, surname, middle_name, phone, "
+        "telegram, locale, "
+        "timezone, contacts_visible, experience_level, "
+        "created_at::text AS created_at, updated_at::text AS updated_at "
         "FROM app_user WHERE id = $1 LIMIT 1",
         std::move(meResultCb), exceptPtrCb, userId);
   } catch (const std::exception& e) {

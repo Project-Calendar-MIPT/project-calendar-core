@@ -5,7 +5,7 @@
  *
  */
 
-#include "models/SuperProject.hpp"
+#include "SuperProject.h"
 #include <drogon/utils/Utilities.h>
 #include <string>
 
@@ -613,6 +613,11 @@ Json::Value SuperProject::toJson() const
         ret["created_at"]=Json::Value();
     }
     return ret;
+}
+
+std::string SuperProject::toString() const
+{
+    return toJson().toStyledString();
 }
 
 Json::Value SuperProject::toMasqueradedJson(
