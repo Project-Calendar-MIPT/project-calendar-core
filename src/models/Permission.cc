@@ -402,6 +402,11 @@ Json::Value Permission::toJson() const
     return ret;
 }
 
+std::string Permission::toString() const
+{
+    return toJson().toStyledString();
+}
+
 Json::Value Permission::toMasqueradedJson(
     const std::vector<std::string> &pMasqueradingVector) const
 {

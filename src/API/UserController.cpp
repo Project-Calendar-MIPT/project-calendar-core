@@ -133,9 +133,9 @@ void UsersController::setWorkSchedule(
     return;
   }
   const Json::Value& arr = *pj;
-  if (arr.size() != 7) {
+  if (arr.size() < 1 || arr.size() > 7) {
     auto resp = HttpResponse::newHttpJsonResponse(
-        Json::Value("Array must contain 7 elements (one per weekday)"));
+        Json::Value("Array must contain 1-7 elements (one per weekday)"));
     resp->setStatusCode(k400BadRequest);
     callback(resp);
     return;
@@ -242,13 +242,16 @@ void UsersController::setWorkSchedule(
       int dow = el["day_of_week"].asInt();
       bool isWorking = el["is_working_day"].asBool();
 
+      // Only store working days — non-working days have no DB row
+      if (!isWorking) {
+        continue;
+      }
+
       drogon_model::project_calendar::UserWorkSchedule ws;
       ws.setUserId(userId);
       ws.setWeekday(static_cast<int32_t>(dow));
-      if (isWorking) {
-        ws.setStartTime(el["start_time"].asString());
-        ws.setEndTime(el["end_time"].asString());
-      }
+      ws.setStartTime(el["start_time"].asString());
+      ws.setEndTime(el["end_time"].asString());
 
       wsMapper.insert(ws);
 

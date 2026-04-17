@@ -300,9 +300,8 @@ void ProjectController::createProject(
         "($1::uuid, $2::project_visibility_enum)",
         projectId, visibility);
 
-    trans.reset();
-
-    auto finalRes = dbClient->execSqlSync(
+    // Fetch inside transaction before commit for guaranteed visibility
+    auto finalRes = trans->execSqlSync(
         R"sql(
         SELECT t.id::text AS id,
                t.parent_task_id::text AS parent_task_id,
@@ -332,10 +331,14 @@ void ProjectController::createProject(
       )sql",
         projectId);
 
+    trans.reset();  // commit
+
     if (finalRes.empty()) {
-      auto resp = HttpResponse::newHttpJsonResponse(
-          Json::Value("Project created but cannot fetch it"));
-      resp->setStatusCode(k500InternalServerError);
+      // Project was committed — build minimal response
+      Json::Value out;
+      out["id"] = projectId;
+      auto resp = HttpResponse::newHttpJsonResponse(out);
+      resp->setStatusCode(k201Created);
       return callback(resp);
     }
 

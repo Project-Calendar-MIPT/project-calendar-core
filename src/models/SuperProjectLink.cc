@@ -402,6 +402,11 @@ Json::Value SuperProjectLink::toJson() const
     return ret;
 }
 
+std::string SuperProjectLink::toString() const
+{
+    return toJson().toStyledString();
+}
+
 Json::Value SuperProjectLink::toMasqueradedJson(
     const std::vector<std::string> &pMasqueradingVector) const
 {

@@ -41,6 +41,10 @@ class TaskController : public drogon::HttpController<TaskController> {
   ADD_METHOD_TO(TaskController::deleteNote, "/api/notes/{note_id}", Delete,
                 "AuthFilter");
 
+  ADD_METHOD_TO(TaskController::removeAssignmentByUser,
+                "/api/tasks/{task_id}/assignments/{user_id}", Delete,
+                "AuthFilter");
+
   ADD_METHOD_TO(TaskController::calculateAvailability,
                 "/api/tasks/availability/calculate", Post, "AuthFilter");
 
@@ -84,9 +88,15 @@ class TaskController : public drogon::HttpController<TaskController> {
   void deleteNote(const HttpRequestPtr& req,
                   std::function<void(const HttpResponsePtr&)>&& callback);
 
-  void calculateAvailability(const HttpRequestPtr& req,
-                             std::function<void(const HttpResponsePtr&)>&& callback);
+  void removeAssignmentByUser(
+      const HttpRequestPtr& req,
+      std::function<void(const HttpResponsePtr&)>&& callback);
 
-  void getCandidateAssignees(const HttpRequestPtr& req,
-                             std::function<void(const HttpResponsePtr&)>&& callback);
+  void calculateAvailability(
+      const HttpRequestPtr& req,
+      std::function<void(const HttpResponsePtr&)>&& callback);
+
+  void getCandidateAssignees(
+      const HttpRequestPtr& req,
+      std::function<void(const HttpResponsePtr&)>&& callback);
 };

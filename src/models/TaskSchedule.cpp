@@ -5,7 +5,7 @@
  *
  */
 
-#include "models/TaskSchedule.hpp"
+#include "TaskSchedule.h"
 #include <drogon/utils/Utilities.h>
 #include <string>
 
@@ -1006,6 +1006,11 @@ Json::Value TaskSchedule::toJson() const
         ret["auto_placed"]=Json::Value();
     }
     return ret;
+}
+
+std::string TaskSchedule::toString() const
+{
+    return toJson().toStyledString();
 }
 
 Json::Value TaskSchedule::toMasqueradedJson(

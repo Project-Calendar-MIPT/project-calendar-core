@@ -55,6 +55,10 @@ class AppUser
         static const std::string _password_hash;
         static const std::string _created_at;
         static const std::string _updated_at;
+        static const std::string _timezone;
+        static const std::string _contacts_visible;
+        static const std::string _experience_level;
+        static const std::string _middle_name;
     };
 
     static const int primaryKeyNumber;
@@ -209,11 +213,51 @@ class AppUser
     ///Set the value of the column updated_at
     void setUpdatedAt(const ::trantor::Date &pUpdatedAt) noexcept;
 
+    /**  For column timezone  */
+    ///Get the value of the column timezone, returns the default value if the column is null
+    const std::string &getValueOfTimezone() const noexcept;
+    ///Return a shared_ptr object pointing to the column const value, or an empty shared_ptr object if the column is null
+    const std::shared_ptr<std::string> &getTimezone() const noexcept;
+    ///Set the value of the column timezone
+    void setTimezone(const std::string &pTimezone) noexcept;
+    void setTimezone(std::string &&pTimezone) noexcept;
+    void setTimezoneToNull() noexcept;
 
-    static size_t getColumnNumber() noexcept {  return 11;  }
+    /**  For column contacts_visible  */
+    ///Get the value of the column contacts_visible, returns the default value if the column is null
+    const bool &getValueOfContactsVisible() const noexcept;
+    ///Return a shared_ptr object pointing to the column const value, or an empty shared_ptr object if the column is null
+    const std::shared_ptr<bool> &getContactsVisible() const noexcept;
+    ///Set the value of the column contacts_visible
+    void setContactsVisible(const bool &pContactsVisible) noexcept;
+    void setContactsVisibleToNull() noexcept;
+
+    /**  For column experience_level  */
+    ///Get the value of the column experience_level, returns the default value if the column is null
+    const std::string &getValueOfExperienceLevel() const noexcept;
+    ///Return a shared_ptr object pointing to the column const value, or an empty shared_ptr object if the column is null
+    const std::shared_ptr<std::string> &getExperienceLevel() const noexcept;
+    ///Set the value of the column experience_level
+    void setExperienceLevel(const std::string &pExperienceLevel) noexcept;
+    void setExperienceLevel(std::string &&pExperienceLevel) noexcept;
+    void setExperienceLevelToNull() noexcept;
+
+    /**  For column middle_name  */
+    ///Get the value of the column middle_name, returns the default value if the column is null
+    const std::string &getValueOfMiddleName() const noexcept;
+    ///Return a shared_ptr object pointing to the column const value, or an empty shared_ptr object if the column is null
+    const std::shared_ptr<std::string> &getMiddleName() const noexcept;
+    ///Set the value of the column middle_name
+    void setMiddleName(const std::string &pMiddleName) noexcept;
+    void setMiddleName(std::string &&pMiddleName) noexcept;
+    void setMiddleNameToNull() noexcept;
+
+
+    static size_t getColumnNumber() noexcept {  return 15;  }
     static const std::string &getColumnName(size_t index) noexcept(false);
 
     Json::Value toJson() const;
+    std::string toString() const;
     Json::Value toMasqueradedJson(const std::vector<std::string> &pMasqueradingVector) const;
     /// Relationship interfaces
   private:
@@ -242,6 +286,10 @@ class AppUser
     std::shared_ptr<std::string> passwordHash_;
     std::shared_ptr<::trantor::Date> createdAt_;
     std::shared_ptr<::trantor::Date> updatedAt_;
+    std::shared_ptr<std::string> timezone_;
+    std::shared_ptr<bool> contactsVisible_;
+    std::shared_ptr<std::string> experienceLevel_;
+    std::shared_ptr<std::string> middleName_;
     struct MetaData
     {
         const std::string colName_;
@@ -253,7 +301,7 @@ class AppUser
         const bool notNull_;
     };
     static const std::vector<MetaData> metaData_;
-    bool dirtyFlag_[11]={ false };
+    bool dirtyFlag_[15]={ false };
   public:
     static const std::string &sqlForFindingByPrimaryKey()
     {
@@ -327,6 +375,29 @@ class AppUser
         sql += "updated_at,";
         ++parametersCount;
         if(!dirtyFlag_[10])
+        {
+            needSelection=true;
+        }
+        sql += "timezone,";
+        ++parametersCount;
+        if(!dirtyFlag_[11])
+        {
+            needSelection=true;
+        }
+        sql += "contacts_visible,";
+        ++parametersCount;
+        if(!dirtyFlag_[12])
+        {
+            needSelection=true;
+        }
+        if(dirtyFlag_[13])
+        {
+            sql += "experience_level,";
+            ++parametersCount;
+        }
+        sql += "middle_name,";
+        ++parametersCount;
+        if(!dirtyFlag_[14])
         {
             needSelection=true;
         }
@@ -404,6 +475,38 @@ class AppUser
             sql +="default,";
         }
         if(dirtyFlag_[10])
+        {
+            n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
+            sql.append(placeholderStr, n);
+        }
+        else
+        {
+            sql +="default,";
+        }
+        if(dirtyFlag_[11])
+        {
+            n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
+            sql.append(placeholderStr, n);
+        }
+        else
+        {
+            sql +="default,";
+        }
+        if(dirtyFlag_[12])
+        {
+            n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
+            sql.append(placeholderStr, n);
+        }
+        else
+        {
+            sql +="default,";
+        }
+        if(dirtyFlag_[13])
+        {
+            n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
+            sql.append(placeholderStr, n);
+        }
+        if(dirtyFlag_[14])
         {
             n = snprintf(placeholderStr,sizeof(placeholderStr),"$%d,",placeholder++);
             sql.append(placeholderStr, n);

@@ -5,7 +5,7 @@
  *
  */
 
-#include "models/Delegation.hpp"
+#include "Delegation.h"
 #include <drogon/utils/Utilities.h>
 #include <string>
 
@@ -1542,6 +1542,11 @@ Json::Value Delegation::toJson() const
         ret["reason"]=Json::Value();
     }
     return ret;
+}
+
+std::string Delegation::toString() const
+{
+    return toJson().toStyledString();
 }
 
 Json::Value Delegation::toMasqueradedJson(

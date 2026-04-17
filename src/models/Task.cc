@@ -9,7 +9,7 @@
 #include <drogon/utils/Utilities.h>
 #include <string>
 
-//using namespace drogon;
+using namespace drogon;
 using namespace drogon::orm;
 using namespace drogon_model::project_calendar;
 
@@ -26,6 +26,7 @@ const std::string Task::Cols::_project_root_id = "\"project_root_id\"";
 const std::string Task::Cols::_created_by = "\"created_by\"";
 const std::string Task::Cols::_created_at = "\"created_at\"";
 const std::string Task::Cols::_updated_at = "\"updated_at\"";
+const std::string Task::Cols::_wanted_skills = "\"wanted_skills\"";
 const std::string Task::primaryKeyName = "id";
 const bool Task::hasPrimaryKey = true;
 const std::string Task::tableName = "\"task\"";
@@ -43,7 +44,8 @@ const std::vector<typename Task::MetaData> Task::metaData_={
 {"project_root_id","std::string","uuid",0,0,0,0},
 {"created_by","std::string","uuid",0,0,0,1},
 {"created_at","::trantor::Date","timestamp with time zone",0,0,0,1},
-{"updated_at","::trantor::Date","timestamp with time zone",0,0,0,1}
+{"updated_at","::trantor::Date","timestamp with time zone",0,0,0,1},
+{"wanted_skills","std::string","ARRAY",0,0,0,0}
 };
 const std::string &Task::getColumnName(size_t index) noexcept(false)
 {
@@ -152,11 +154,15 @@ Task::Task(const Row &r, const ssize_t indexOffset) noexcept
                 updatedAt_=std::make_shared<::trantor::Date>(t*1000000+decimalNum);
             }
         }
+        if(!r["wanted_skills"].isNull())
+        {
+            wantedSkills_=std::make_shared<std::string>(r["wanted_skills"].as<std::string>());
+        }
     }
     else
     {
         size_t offset = (size_t)indexOffset;
-        if(offset + 13 > r.size())
+        if(offset + 14 > r.size())
         {
             LOG_FATAL << "Invalid SQL result for this model";
             return;
@@ -273,13 +279,18 @@ Task::Task(const Row &r, const ssize_t indexOffset) noexcept
                 updatedAt_=std::make_shared<::trantor::Date>(t*1000000+decimalNum);
             }
         }
+        index = offset + 13;
+        if(!r[index].isNull())
+        {
+            wantedSkills_=std::make_shared<std::string>(r[index].as<std::string>());
+        }
     }
 
 }
 
 Task::Task(const Json::Value &pJson, const std::vector<std::string> &pMasqueradingVector) noexcept(false)
 {
-    if(pMasqueradingVector.size() != 13)
+    if(pMasqueradingVector.size() != 14)
     {
         LOG_ERROR << "Bad masquerading vector";
         return;
@@ -432,6 +443,14 @@ Task::Task(const Json::Value &pJson, const std::vector<std::string> &pMasqueradi
                 }
                 updatedAt_=std::make_shared<::trantor::Date>(t*1000000+decimalNum);
             }
+        }
+    }
+    if(!pMasqueradingVector[13].empty() && pJson.isMember(pMasqueradingVector[13]))
+    {
+        dirtyFlag_[13] = true;
+        if(!pJson[pMasqueradingVector[13]].isNull())
+        {
+            wantedSkills_=std::make_shared<std::string>(pJson[pMasqueradingVector[13]].asString());
         }
     }
 }
@@ -588,12 +607,20 @@ Task::Task(const Json::Value &pJson) noexcept(false)
             }
         }
     }
+    if(pJson.isMember("wanted_skills"))
+    {
+        dirtyFlag_[13]=true;
+        if(!pJson["wanted_skills"].isNull())
+        {
+            wantedSkills_=std::make_shared<std::string>(pJson["wanted_skills"].asString());
+        }
+    }
 }
 
 void Task::updateByMasqueradedJson(const Json::Value &pJson,
                                             const std::vector<std::string> &pMasqueradingVector) noexcept(false)
 {
-    if(pMasqueradingVector.size() != 13)
+    if(pMasqueradingVector.size() != 14)
     {
         LOG_ERROR << "Bad masquerading vector";
         return;
@@ -747,6 +774,14 @@ void Task::updateByMasqueradedJson(const Json::Value &pJson,
             }
         }
     }
+    if(!pMasqueradingVector[13].empty() && pJson.isMember(pMasqueradingVector[13]))
+    {
+        dirtyFlag_[13] = true;
+        if(!pJson[pMasqueradingVector[13]].isNull())
+        {
+            wantedSkills_=std::make_shared<std::string>(pJson[pMasqueradingVector[13]].asString());
+        }
+    }
 }
 
 void Task::updateByJson(const Json::Value &pJson) noexcept(false)
@@ -898,6 +933,14 @@ void Task::updateByJson(const Json::Value &pJson) noexcept(false)
                 }
                 updatedAt_=std::make_shared<::trantor::Date>(t*1000000+decimalNum);
             }
+        }
+    }
+    if(pJson.isMember("wanted_skills"))
+    {
+        dirtyFlag_[13] = true;
+        if(!pJson["wanted_skills"].isNull())
+        {
+            wantedSkills_=std::make_shared<std::string>(pJson["wanted_skills"].asString());
         }
     }
 }
@@ -1213,6 +1256,33 @@ void Task::setUpdatedAt(const ::trantor::Date &pUpdatedAt) noexcept
     dirtyFlag_[12] = true;
 }
 
+const std::string &Task::getValueOfWantedSkills() const noexcept
+{
+    static const std::string defaultValue = std::string();
+    if(wantedSkills_)
+        return *wantedSkills_;
+    return defaultValue;
+}
+const std::shared_ptr<std::string> &Task::getWantedSkills() const noexcept
+{
+    return wantedSkills_;
+}
+void Task::setWantedSkills(const std::string &pWantedSkills) noexcept
+{
+    wantedSkills_ = std::make_shared<std::string>(pWantedSkills);
+    dirtyFlag_[13] = true;
+}
+void Task::setWantedSkills(std::string &&pWantedSkills) noexcept
+{
+    wantedSkills_ = std::make_shared<std::string>(std::move(pWantedSkills));
+    dirtyFlag_[13] = true;
+}
+void Task::setWantedSkillsToNull() noexcept
+{
+    wantedSkills_.reset();
+    dirtyFlag_[13] = true;
+}
+
 void Task::updateId(const uint64_t id)
 {
 }
@@ -1232,7 +1302,8 @@ const std::vector<std::string> &Task::insertColumns() noexcept
         "project_root_id",
         "created_by",
         "created_at",
-        "updated_at"
+        "updated_at",
+        "wanted_skills"
     };
     return inCols;
 }
@@ -1382,6 +1453,17 @@ void Task::outputArgs(drogon::orm::internal::SqlBinder &binder) const
             binder << nullptr;
         }
     }
+    if(dirtyFlag_[13])
+    {
+        if(getWantedSkills())
+        {
+            binder << getValueOfWantedSkills();
+        }
+        else
+        {
+            binder << nullptr;
+        }
+    }
 }
 
 const std::vector<std::string> Task::updateColumns() const
@@ -1438,6 +1520,10 @@ const std::vector<std::string> Task::updateColumns() const
     if(dirtyFlag_[12])
     {
         ret.push_back(getColumnName(12));
+    }
+    if(dirtyFlag_[13])
+    {
+        ret.push_back(getColumnName(13));
     }
     return ret;
 }
@@ -1587,6 +1673,17 @@ void Task::updateArgs(drogon::orm::internal::SqlBinder &binder) const
             binder << nullptr;
         }
     }
+    if(dirtyFlag_[13])
+    {
+        if(getWantedSkills())
+        {
+            binder << getValueOfWantedSkills();
+        }
+        else
+        {
+            binder << nullptr;
+        }
+    }
 }
 Json::Value Task::toJson() const
 {
@@ -1695,14 +1792,27 @@ Json::Value Task::toJson() const
     {
         ret["updated_at"]=Json::Value();
     }
+    if(getWantedSkills())
+    {
+        ret["wanted_skills"]=getValueOfWantedSkills();
+    }
+    else
+    {
+        ret["wanted_skills"]=Json::Value();
+    }
     return ret;
+}
+
+std::string Task::toString() const
+{
+    return toJson().toStyledString();
 }
 
 Json::Value Task::toMasqueradedJson(
     const std::vector<std::string> &pMasqueradingVector) const
 {
     Json::Value ret;
-    if(pMasqueradingVector.size() == 13)
+    if(pMasqueradingVector.size() == 14)
     {
         if(!pMasqueradingVector[0].empty())
         {
@@ -1847,6 +1957,17 @@ Json::Value Task::toMasqueradedJson(
                 ret[pMasqueradingVector[12]]=Json::Value();
             }
         }
+        if(!pMasqueradingVector[13].empty())
+        {
+            if(getWantedSkills())
+            {
+                ret[pMasqueradingVector[13]]=getValueOfWantedSkills();
+            }
+            else
+            {
+                ret[pMasqueradingVector[13]]=Json::Value();
+            }
+        }
         return ret;
     }
     LOG_ERROR << "Masquerade failed";
@@ -1954,6 +2075,14 @@ Json::Value Task::toMasqueradedJson(
     {
         ret["updated_at"]=Json::Value();
     }
+    if(getWantedSkills())
+    {
+        ret["wanted_skills"]=getValueOfWantedSkills();
+    }
+    else
+    {
+        ret["wanted_skills"]=Json::Value();
+    }
     return ret;
 }
 
@@ -2034,13 +2163,18 @@ bool Task::validateJsonForCreation(const Json::Value &pJson, std::string &err)
         if(!validJsonOfField(12, "updated_at", pJson["updated_at"], err, true))
             return false;
     }
+    if(pJson.isMember("wanted_skills"))
+    {
+        if(!validJsonOfField(13, "wanted_skills", pJson["wanted_skills"], err, true))
+            return false;
+    }
     return true;
 }
 bool Task::validateMasqueradedJsonForCreation(const Json::Value &pJson,
                                               const std::vector<std::string> &pMasqueradingVector,
                                               std::string &err)
 {
-    if(pMasqueradingVector.size() != 13)
+    if(pMasqueradingVector.size() != 14)
     {
         err = "Bad masquerading vector";
         return false;
@@ -2160,6 +2294,14 @@ bool Task::validateMasqueradedJsonForCreation(const Json::Value &pJson,
                   return false;
           }
       }
+      if(!pMasqueradingVector[13].empty())
+      {
+          if(pJson.isMember(pMasqueradingVector[13]))
+          {
+              if(!validJsonOfField(13, pMasqueradingVector[13], pJson[pMasqueradingVector[13]], err, true))
+                  return false;
+          }
+      }
     }
     catch(const Json::LogicError &e)
     {
@@ -2240,13 +2382,18 @@ bool Task::validateJsonForUpdate(const Json::Value &pJson, std::string &err)
         if(!validJsonOfField(12, "updated_at", pJson["updated_at"], err, false))
             return false;
     }
+    if(pJson.isMember("wanted_skills"))
+    {
+        if(!validJsonOfField(13, "wanted_skills", pJson["wanted_skills"], err, false))
+            return false;
+    }
     return true;
 }
 bool Task::validateMasqueradedJsonForUpdate(const Json::Value &pJson,
                                             const std::vector<std::string> &pMasqueradingVector,
                                             std::string &err)
 {
-    if(pMasqueradingVector.size() != 13)
+    if(pMasqueradingVector.size() != 14)
     {
         err = "Bad masquerading vector";
         return false;
@@ -2320,6 +2467,11 @@ bool Task::validateMasqueradedJsonForUpdate(const Json::Value &pJson,
       if(!pMasqueradingVector[12].empty() && pJson.isMember(pMasqueradingVector[12]))
       {
           if(!validJsonOfField(12, pMasqueradingVector[12], pJson[pMasqueradingVector[12]], err, false))
+              return false;
+      }
+      if(!pMasqueradingVector[13].empty() && pJson.isMember(pMasqueradingVector[13]))
+      {
+          if(!validJsonOfField(13, pMasqueradingVector[13], pJson[pMasqueradingVector[13]], err, false))
               return false;
       }
     }
@@ -2479,6 +2631,17 @@ bool Task::validJsonOfField(size_t index,
             {
                 err="The " + fieldName + " column cannot be null";
                 return false;
+            }
+            if(!pJson.isString())
+            {
+                err="Type error in the "+fieldName+" field";
+                return false;
+            }
+            break;
+        case 13:
+            if(pJson.isNull())
+            {
+                return true;
             }
             if(!pJson.isString())
             {

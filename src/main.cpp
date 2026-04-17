@@ -37,8 +37,8 @@ int main() {
     "default",     // name
     false,         // isFast
     "",            // characterSet
-    0.0,           // timeout
-    true           // autoBatch
+    -1.0,          // timeout (no timeout)
+    false          // autoBatch - must be false so sync SELECT after trans commit works
   );
 
   // Configure HTTP server

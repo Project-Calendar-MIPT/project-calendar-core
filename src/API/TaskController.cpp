@@ -1,5 +1,4 @@
 #include "API/TaskController.h"
-#include "API/RbacHelpers.h"
 
 #include <drogon/HttpResponse.h>
 #include <drogon/drogon.h>
@@ -14,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "API/RbacHelpers.h"
 #include "models/Task.h"
 #include "models/TaskAssignment.h"
 #include "models/TaskRoleAssignment.h"
@@ -295,14 +295,8 @@ void TaskController::createTask(
         return callback(resp);
       }
       parentId = j["parent_task_id"].asString();
-      auto parentRes = trans->execSqlSync(
-          "SELECT id FROM \"task\" WHERE id = $1 LIMIT 1", *parentId);
-      if (parentRes.empty()) {
-        auto resp = HttpResponse::newHttpJsonResponse(
-            Json::Value("parent_task_id not found"));
-        resp->setStatusCode(k400BadRequest);
-        return callback(resp);
-      }
+      // No explicit existence check — FK constraint in INSERT handles this.
+      // Avoids race condition with recently-committed parent tasks.
     }
 
     // Validate task dates against project dates
@@ -312,56 +306,53 @@ void TaskController::createTask(
               ? j["project_root_id"].asString()
               : "";
       std::string dateError;
-      if (!validateDatesAgainstProject(trans, projectRootId,
-                                       payloadStartDate, payloadDueDate,
-                                       dateError)) {
+      if (!validateDatesAgainstProject(trans, projectRootId, payloadStartDate,
+                                       payloadDueDate, dateError)) {
         auto resp = HttpResponse::newHttpJsonResponse(Json::Value(dateError));
         resp->setStatusCode(k400BadRequest);
         return callback(resp);
       }
     }
 
-    drogon_model::project_calendar::Task task;
-    try {
-      task.updateByJson(j);
-    } catch (...) {
-    }
-    if (parentId)
-      task.setParentTaskId(*parentId);
-    else
-      task.setParentTaskIdToNull();
+    // Extract fields from JSON
+    const std::string title = j["title"].asString();
+    const std::string description =
+        j.isMember("description") && j["description"].isString() ? j["description"].asString() : "";
+    const std::string priority =
+        j.isMember("priority") && j["priority"].isString() ? j["priority"].asString() : "normal";
+    const std::string statusVal = shouldAutoPromoteToInProgress ? std::string("in_progress")
+        : (j.isMember("status") && j["status"].isString() ? j["status"].asString() : std::string("open"));
+    const double estimatedHours =
+        (j.isMember("estimated_hours") && j["estimated_hours"].isNumeric())
+        ? j["estimated_hours"].asDouble() : 0.0;
+    const std::string parentIdStr = parentId ? *parentId : "";
+    const std::string startDateStr =
+        (j.isMember("start_date") && j["start_date"].isString()) ? j["start_date"].asString() : "";
+    const std::string dueDateStr =
+        (j.isMember("due_date") && j["due_date"].isString()) ? j["due_date"].asString() : "";
 
-    if (shouldAutoPromoteToInProgress) {
-      task.setStatus(std::string("in_progress"));
-    }
+    // Use raw INSERT ... RETURNING id to reliably get the new task ID
+    auto insertRes = trans->execSqlSync(
+        R"sql(
+        INSERT INTO "task" (title, description, priority, status, estimated_hours,
+                            created_by, parent_task_id, start_date, due_date, created_at, updated_at)
+        VALUES ($1, $2, $3::task_priority_enum, $4::task_status_enum, $5, $6::uuid,
+                NULLIF($7, '')::uuid,
+                NULLIF($8, '')::date,
+                NULLIF($9, '')::date,
+                NOW(), NOW())
+        RETURNING id
+        )sql",
+        title, description, priority, statusVal,
+        std::to_string(estimatedHours), userId,
+        parentIdStr, startDateStr, dueDateStr);
 
-    task.setCreatedBy(userId);
-    task.setCreatedAt(::trantor::Date::now());
-    task.setUpdatedAt(::trantor::Date::now());
-
-    drogon::orm::Mapper<drogon_model::project_calendar::Task> taskMapper(
-        trans);
-    taskMapper.insert(task);
-
-    std::string taskId;
-    try {
-      taskId = task.getValueOfId();
-    } catch (...) {
-      taskId.clear();
+    if (insertRes.empty()) {
+      auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Failed to create task"));
+      resp->setStatusCode(k500InternalServerError);
+      return callback(resp);
     }
-    if (taskId.empty()) {
-      auto res = trans->execSqlSync(
-          "SELECT id FROM \"task\" WHERE created_by = $1 AND title = $2 "
-          "ORDER BY created_at DESC LIMIT 1",
-          userId, task.getValueOfTitle());
-      if (res.empty()) {
-        auto resp = HttpResponse::newHttpJsonResponse(
-            Json::Value("Failed to determine inserted task id"));
-        resp->setStatusCode(k500InternalServerError);
-        return callback(resp);
-      }
-      taskId = res[0]["id"].as<std::string>();
-    }
+    const std::string taskId = insertRes[0]["id"].as<std::string>();
 
     drogon_model::project_calendar::TaskAssignment ta;
     ta.setTaskId(taskId);
@@ -401,30 +392,39 @@ void TaskController::createTask(
       }
     }
 
-    trans.reset();
-
-    auto finalRes = dbClient->execSqlSync(
+    // Fetch created task INSIDE the transaction before commit (guaranteed visibility)
+    auto finalRes = trans->execSqlSync(
         R"sql(
         SELECT id, parent_task_id, title, description, priority, status, estimated_hours,
                start_date::text AS start_date, due_date::text AS due_date,
-               project_root_id, created_by, created_at::text AS created_at, updated_at::text AS updated_at
+               project_root_id, created_by, created_at::text AS created_at, updated_at::text AS updated_at,
+               wanted_skills
         FROM "task" WHERE id = $1 LIMIT 1
       )sql",
         taskId);
-    if (finalRes.empty()) {
-      auto resp = HttpResponse::newHttpJsonResponse(
-          Json::Value("Task created but cannot fetch it"));
-      resp->setStatusCode(k500InternalServerError);
-      return callback(resp);
+
+    trans.reset();  // commit transaction
+
+    drogon_model::project_calendar::Task created;
+    if (!finalRes.empty()) {
+      created = drogon_model::project_calendar::Task(finalRes[0], -1);
     }
-    drogon_model::project_calendar::Task created(finalRes[0], -1);
-    auto out = created.toJson();
+    auto out = finalRes.empty() ? Json::Value(Json::objectValue) : created.toJson();
     auto resp = HttpResponse::newHttpJsonResponse(out);
     resp->setStatusCode(k201Created);
     return callback(resp);
 
   } catch (const std::exception& e) {
-    LOG_ERROR << "createTask failed: " << e.what();
+    const std::string what = e.what() ? e.what() : "";
+    LOG_ERROR << "createTask failed: " << what;
+    // Foreign key violation: parent_task_id does not exist
+    if (what.find("foreign key") != std::string::npos ||
+        what.find("violates foreign") != std::string::npos) {
+      auto resp = HttpResponse::newHttpJsonResponse(
+          Json::Value("parent_task_id not found"));
+      resp->setStatusCode(k400BadRequest);
+      return callback(resp);
+    }
     auto resp =
         HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
     resp->setStatusCode(k500InternalServerError);
@@ -869,18 +869,19 @@ void TaskController::getCandidateAssignees(
           )
           SELECT COALESCE(
                    SUM(
-                     CASE
-                       WHEN us.proficiency >= 3 THEN 1.0 + (us.proficiency - 3) * 0.25
+                     CASE us.experience_level
+                       WHEN 'senior' THEN 1.25
+                       WHEN 'middle' THEN 1.0
                        ELSE 0.5
                      END
                    ),
                    0.0
                  ) AS skill_score,
-                 COUNT(us.skill_key) AS matched_skills
+                 COUNT(us.name) AS matched_skills
           FROM req
           LEFT JOIN user_skill us
             ON us.user_id = $1::uuid
-           AND lower(us.skill_key) = lower(req.skill)
+           AND lower(us.name) = lower(req.skill)
         )sql",
           candidateUserId, requiredSkillsCsv);
 
@@ -1040,7 +1041,8 @@ void TaskController::updateTask(
         R"sql(
         SELECT id, parent_task_id, title, description, priority, status, estimated_hours,
                start_date::text AS start_date, due_date::text AS due_date,
-               project_root_id, created_by, created_at::text AS created_at, updated_at::text AS updated_at
+               project_root_id, created_by, created_at::text AS created_at, updated_at::text AS updated_at,
+               wanted_skills
         FROM "task" WHERE id = $1 LIMIT 1
       )sql",
         taskId);
@@ -1217,7 +1219,8 @@ void TaskController::updateTask(
         R"sql(
         SELECT id, parent_task_id, title, description, priority, status, estimated_hours,
                start_date::text AS start_date, due_date::text AS due_date,
-               project_root_id, created_by, created_at::text AS created_at, updated_at::text AS updated_at
+               project_root_id, created_by, created_at::text AS created_at, updated_at::text AS updated_at,
+               wanted_skills
         FROM "task" WHERE id = $1 LIMIT 1
       )sql",
         taskId);
@@ -1481,7 +1484,8 @@ void TaskController::createAssignment(
         taskId);
     if (!projCheck.empty() && !projCheck[0]["proj_id"].isNull()) {
       const std::string projId = projCheck[0]["proj_id"].as<std::string>();
-      const std::string callerRole = getCallerProjectRole(dbClient, projId, requester);
+      const std::string callerRole =
+          getCallerProjectRole(dbClient, projId, requester);
       if (!isOwnerOrAdmin(callerRole)) {
         auto resp = HttpResponse::newHttpJsonResponse(
             Json::Value("Insufficient permissions"));
@@ -1523,7 +1527,8 @@ void TaskController::createAssignment(
       const bool isProject = taskInfo[0]["parent_task_id"].isNull();
       if (isProject) {
         auto owners = dbClient->execSqlSync(
-            "SELECT 1 FROM \"task_role_assignment\" WHERE task_id = $1 AND role = "
+            "SELECT 1 FROM \"task_role_assignment\" WHERE task_id = $1 AND "
+            "role = "
             "'owner' LIMIT 1",
             taskId);
         if (!owners.empty()) {
@@ -1721,7 +1726,8 @@ void TaskController::deleteAssignment(
         taskId);
     if (!projCheck.empty() && !projCheck[0]["proj_id"].isNull()) {
       const std::string projId = projCheck[0]["proj_id"].as<std::string>();
-      const std::string callerRole = getCallerProjectRole(dbClient, projId, requester);
+      const std::string callerRole =
+          getCallerProjectRole(dbClient, projId, requester);
       if (!isOwnerOrAdmin(callerRole)) {
         auto resp = HttpResponse::newHttpJsonResponse(
             Json::Value("Insufficient permissions"));
@@ -2078,6 +2084,56 @@ void TaskController::deleteNote(
 
   } catch (const std::exception& e) {
     LOG_ERROR << "deleteNote failed: " << e.what();
+    auto resp =
+        HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
+    resp->setStatusCode(k500InternalServerError);
+    return callback(resp);
+  }
+}
+
+void TaskController::removeAssignmentByUser(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  std::string taskId = getPathVariableCompat(req, "task_id");
+  std::string targetUserId = getPathVariableCompat(req, "user_id");
+
+  if (taskId.empty() || targetUserId.empty()) {
+    auto resp = HttpResponse::newHttpJsonResponse(
+        Json::Value("Missing task_id or user_id"));
+    resp->setStatusCode(k400BadRequest);
+    return callback(resp);
+  }
+
+  auto attrsPtr = req->attributes();
+  if (!attrsPtr || !attrsPtr->find("user_id")) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
+    resp->setStatusCode(k401Unauthorized);
+    return callback(resp);
+  }
+  const std::string requesterId = attrsPtr->get<std::string>("user_id");
+
+  auto dbClient = app().getDbClient();
+  try {
+    auto trans = dbClient->newTransaction();
+
+    trans->execSqlSync(
+        "DELETE FROM \"task_role_assignment\" WHERE task_id = $1 AND user_id = "
+        "$2",
+        taskId, targetUserId);
+
+    trans->execSqlSync(
+        "DELETE FROM \"task_assignment\" WHERE task_id = $1 AND user_id = $2",
+        taskId, targetUserId);
+
+    trans.reset();
+
+    auto resp =
+        HttpResponse::newHttpJsonResponse(Json::Value("Assignment removed"));
+    resp->setStatusCode(k200OK);
+    return callback(resp);
+
+  } catch (const std::exception& e) {
+    LOG_ERROR << "removeAssignmentByUser failed: " << e.what();
     auto resp =
         HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
     resp->setStatusCode(k500InternalServerError);
