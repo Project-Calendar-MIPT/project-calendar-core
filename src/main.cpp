@@ -4,6 +4,8 @@
 #include <cstdlib>
 #include <string>
 
+#include "API/KafkaProducer.h"
+
 int main() {
   // Load configuration
   trantor::Logger::setLogLevel(trantor::Logger::kInfo);
@@ -47,8 +49,14 @@ int main() {
       .addListener("0.0.0.0", 8080)
       .setLogLevel(trantor::Logger::kInfo);
 
+  // Initialise Kafka producer (optional — degrades gracefully if unavailable)
+  {
+    const char* brokers = std::getenv("KAFKA_BOOTSTRAP_SERVERS");
+    KafkaProducer::instance().init(brokers ? brokers : "");
+  }
+
   LOG_INFO << "Server starting on http://0.0.0.0:8080";
-  
+
   // Run the application
   drogon::app().run();
   

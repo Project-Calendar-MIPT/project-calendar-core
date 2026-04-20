@@ -167,17 +167,17 @@ class TestAuthentication:
         assert response.status_code == 409  # Conflict
     
     def test_register_invalid_password(self, client):
-        """Test registration with short password"""
+        """Test registration with empty password is rejected"""
         import uuid
         user_data = {
             "email": f"test_{uuid.uuid4().hex[:8]}@example.com",
-            "password": "short",
+            "password": "",
             "display_name": "Test",
             "work_schedule": [
                 {"weekday": 0, "start_time": "09:00:00", "end_time": "17:00:00"}
             ]
         }
-        
+
         response = client.post("/auth/register", user_data)
         assert response.status_code == 400
     

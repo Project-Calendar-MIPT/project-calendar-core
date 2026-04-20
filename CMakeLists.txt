@@ -12,6 +12,9 @@ find_package(Drogon CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_library(BCRYPT_LIBRARY NAMES bcrypt PATHS /usr/local/lib /opt/homebrew/lib)
 
+find_library(RDKAFKA_CPP_LIBRARY NAMES rdkafka++ PATHS /usr/lib /usr/local/lib /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu)
+find_library(RDKAFKA_C_LIBRARY NAMES rdkafka PATHS /usr/lib /usr/local/lib /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu)
+
 # Collect model source files (.cpp instead of .cc)
 file(GLOB MODEL_SOURCES
     ${CMAKE_SOURCE_DIR}/src/models/*.cpp
@@ -48,6 +51,13 @@ if(BCRYPT_LIBRARY)
     target_link_libraries(${PROJECT_NAME} PRIVATE ${BCRYPT_LIBRARY})
 else()
     message(WARNING "bcrypt library not found; local build may fail outside Docker")
+endif()
+
+if(RDKAFKA_CPP_LIBRARY AND RDKAFKA_C_LIBRARY)
+    target_link_libraries(${PROJECT_NAME} PRIVATE ${RDKAFKA_CPP_LIBRARY} ${RDKAFKA_C_LIBRARY})
+    message(STATUS "rdkafka found: ${RDKAFKA_CPP_LIBRARY}")
+else()
+    message(WARNING "librdkafka not found; Kafka support disabled at link time")
 endif()
 
 target_include_directories(${PROJECT_NAME} PRIVATE

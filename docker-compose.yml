@@ -17,6 +17,48 @@ services:
       timeout: 5s
       retries: 5
 
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: project-calendar-kafka
+    environment:
+      - KAFKA_CFG_NODE_ID=0
+      - KAFKA_CFG_PROCESS_ROLES=controller,broker
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+      - KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: project-calendar-mailhog
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # Web UI → http://localhost:8025
+
+  email-consumer:
+    build:
+      context: ./email-consumer
+    container_name: project-calendar-email-consumer
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      EMAIL_FROM: noreply@project-calendar.dev
+    restart: unless-stopped
+
   backend:
     build:
       context: .
@@ -25,6 +67,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
     environment:
       DB_HOST: db
       DB_PORT: 5432
@@ -32,6 +76,9 @@ services:
       DB_USER: pc_admin
       DB_PASSWORD: pc_password
       JWT_SECRET: your_secret_key_change_in_production
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      FRONTEND_URL: http://localhost:5173
+      SKIP_EMAIL_VERIFICATION: "false"
     ports:
       - "8080:8080"
     restart: unless-stopped
