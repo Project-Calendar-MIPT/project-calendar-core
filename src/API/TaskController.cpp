@@ -271,6 +271,13 @@ void TaskController::createTask(
           : "";
   const bool payloadHasAnyDate = hasAnyDate(payloadStartDate, payloadDueDate);
 
+  if (payloadHasAnyDate && !assigneeUserId.has_value()) {
+    auto resp = HttpResponse::newHttpJsonResponse(
+        Json::Value("Tasks with start_date or due_date must have an assignee_user_id"));
+    resp->setStatusCode(k400BadRequest);
+    return callback(resp);
+  }
+
   std::optional<std::string> payloadStatus =
       (j.isMember("status") && j["status"].isString())
           ? std::make_optional(j["status"].asString())
@@ -326,6 +333,8 @@ void TaskController::createTask(
         (j.isMember("estimated_hours") && j["estimated_hours"].isNumeric())
         ? j["estimated_hours"].asDouble() : 0.0;
     const std::string parentIdStr = parentId ? *parentId : "";
+    const std::string projectRootIdStr =
+        (j.isMember("project_root_id") && j["project_root_id"].isString()) ? j["project_root_id"].asString() : "";
     const std::string startDateStr =
         (j.isMember("start_date") && j["start_date"].isString()) ? j["start_date"].asString() : "";
     const std::string dueDateStr =
@@ -335,17 +344,18 @@ void TaskController::createTask(
     auto insertRes = trans->execSqlSync(
         R"sql(
         INSERT INTO "task" (title, description, priority, status, estimated_hours,
-                            created_by, parent_task_id, start_date, due_date, created_at, updated_at)
+                            created_by, parent_task_id, project_root_id, start_date, due_date, created_at, updated_at)
         VALUES ($1, $2, $3::task_priority_enum, $4::task_status_enum, $5, $6::uuid,
                 NULLIF($7, '')::uuid,
-                NULLIF($8, '')::date,
+                NULLIF($8, '')::uuid,
                 NULLIF($9, '')::date,
+                NULLIF($10, '')::date,
                 NOW(), NOW())
         RETURNING id
         )sql",
         title, description, priority, statusVal,
         std::to_string(estimatedHours), userId,
-        parentIdStr, startDateStr, dueDateStr);
+        parentIdStr, projectRootIdStr, startDateStr, dueDateStr);
 
     if (insertRes.empty()) {
       auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Failed to create task"));
