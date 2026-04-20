@@ -1,4 +1,5 @@
 #include "API/AuthController.h"
+#include "API/KafkaProducer.h"
 
 #include <drogon/drogon.h>
 #include <drogon/orm/DbClient.h>
@@ -25,6 +26,19 @@ using drogon_model::project_calendar::UserSkill;
 using drogon_model::project_calendar::UserWorkSchedule;
 
 static constexpr int kTokenExpiryDays = 7;
+
+static bool skipEmailVerification() {
+  const char* v = std::getenv("SKIP_EMAIL_VERIFICATION");
+  if (!v) return false;
+  std::string s(v);
+  for (auto& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  return s == "true" || s == "1" || s == "yes";
+}
+
+static std::string getFrontendUrl() {
+  const char* v = std::getenv("FRONTEND_URL");
+  return (v && *v) ? std::string(v) : std::string("http://localhost:5173");
+}
 
 static bool containsCaseInsensitive(const std::string& hay,
                                     const std::string& needle) {
@@ -111,9 +125,9 @@ void AuthController::registerUser(
     stackJson = j["stack"];
   }
 
-  if (password.size() < 8) {
+  if (password.empty()) {
     auto resp = HttpResponse::newHttpJsonResponse(
-        Json::Value("Password must be at least 8 characters"));
+        Json::Value("Password is required"));
     resp->setStatusCode(k400BadRequest);
     callback(resp);
     return;
@@ -132,6 +146,8 @@ void AuthController::registerUser(
     }
 
     const std::string hash = bcrypt::generateHash(password);
+    const bool skipVerify = skipEmailVerification();
+    const std::string verificationToken = drogon::utils::getUuid();
 
     auto trans = dbClient->newTransaction();
 
@@ -180,6 +196,12 @@ void AuthController::registerUser(
       createdUserId = idRes[0]["id"].as<std::string>();
     }
 
+    // Save verification token; auto-verify if SKIP_EMAIL_VERIFICATION=true
+    trans->execSqlSync(
+        "UPDATE app_user SET email_verification_token = $1, "
+        "email_verified = $2 WHERE id = $3",
+        verificationToken, skipVerify, createdUserId);
+
     if (!workScheduleJson.empty()) {
       drogon::orm::Mapper<UserWorkSchedule> wsMapper(trans);
       for (Json::UInt i = 0; i < workScheduleJson.size(); ++i) {
@@ -216,20 +238,22 @@ void AuthController::registerUser(
       }
     }
 
-    trans.reset();
+    trans.reset();  // commit
 
-    const std::string token =
-        jwt::create()
-            .set_issuer("project-calendar")
-            .set_type("JWT")
-            .set_payload_claim("user_id", jwt::claim(createdUserId))
-            .set_expires_at(std::chrono::system_clock::now() +
-                            std::chrono::hours{24 * kTokenExpiryDays})
-            .sign(jwt::algorithm::hs256{getJwtSecret()});
+    // Publish Kafka event regardless of skip flag (consumer handles sending)
+    {
+      Json::Value event;
+      event["user_id"] = createdUserId;
+      event["email"] = email;
+      event["display_name"] = displayName;
+      event["verification_token"] = verificationToken;
+      event["verification_url"] =
+          getFrontendUrl() + "/verify-email?token=" + verificationToken;
 
-    Json::Value response;
-    response["success"] = true;
-    response["token"] = token;
+      Json::FastWriter fw;
+      KafkaProducer::instance().produce("user-registration", createdUserId,
+                                        fw.write(event));
+    }
 
     Json::Value userJson;
     userJson["id"] = createdUserId;
@@ -238,16 +262,31 @@ void AuthController::registerUser(
     if (!name.empty()) userJson["name"] = name;
     if (!surname.empty()) userJson["surname"] = surname;
     if (!middleName.empty()) userJson["middle_name"] = middleName;
-
     userJson["timezone"] = timezone;
     userJson["contacts_visible"] = contactsVisible;
-    if (!experienceLevel.empty())
-      userJson["experience_level"] = experienceLevel;
+    if (!experienceLevel.empty()) userJson["experience_level"] = experienceLevel;
     if (!stackJson.empty()) userJson["stack"] = stackJson;
+    userJson["email_verified"] = skipVerify;
 
+    Json::Value response;
+    response["success"] = true;
     response["user"] = userJson;
-    if (!workScheduleJson.empty()) {
-      response["work_schedule"] = workScheduleJson;
+    if (!workScheduleJson.empty()) response["work_schedule"] = workScheduleJson;
+
+    if (skipVerify) {
+      // Return JWT immediately (dev / test mode)
+      const std::string jwtToken =
+          jwt::create()
+              .set_issuer("project-calendar")
+              .set_type("JWT")
+              .set_payload_claim("user_id", jwt::claim(createdUserId))
+              .set_expires_at(std::chrono::system_clock::now() +
+                              std::chrono::hours{24 * kTokenExpiryDays})
+              .sign(jwt::algorithm::hs256{getJwtSecret()});
+      response["token"] = jwtToken;
+    } else {
+      response["message"] =
+          "Verification email sent. Please check your inbox.";
     }
 
     auto resp = HttpResponse::newHttpJsonResponse(response);
@@ -330,6 +369,19 @@ void AuthController::login(
             return;
           }
 
+          // Block login if email not yet verified
+          bool emailVerified = true;
+          if (!row["email_verified"].isNull()) {
+            emailVerified = row["email_verified"].as<bool>();
+          }
+          if (!emailVerified && !skipEmailVerification()) {
+            auto resp = HttpResponse::newHttpJsonResponse(
+                Json::Value("Email not verified. Please check your inbox."));
+            resp->setStatusCode(k403Forbidden);
+            callbackCopy(resp);
+            return;
+          }
+
           const std::string userId =
               row["id"].isNull() ? std::string() : row["id"].as<std::string>();
           const std::string displayName =
@@ -386,8 +438,8 @@ void AuthController::login(
   };
 
   dbClient->execSqlAsync(
-      "SELECT id, password_hash, display_name, email, created_at::text AS "
-      "created_at, updated_at::text AS updated_at "
+      "SELECT id, password_hash, display_name, email, email_verified, "
+      "created_at::text AS created_at, updated_at::text AS updated_at "
       "FROM app_user WHERE email = $1 LIMIT 1",
       std::move(loginResultCb), exceptPtrCb, email);
 }
@@ -542,5 +594,72 @@ void AuthController::me(
     resp->setStatusCode(k401Unauthorized);
     callback(resp);
     return;
+  }
+}
+
+void AuthController::verifyEmail(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  const std::string token = req->getParameter("token");
+  if (token.empty()) {
+    auto resp = HttpResponse::newHttpJsonResponse(
+        Json::Value("Missing token parameter"));
+    resp->setStatusCode(k400BadRequest);
+    callback(resp);
+    return;
+  }
+
+  auto dbClient = app().getDbClient();
+  try {
+    auto res = dbClient->execSqlSync(
+        "SELECT id, email FROM app_user "
+        "WHERE email_verification_token = $1 LIMIT 1",
+        token);
+
+    if (res.empty()) {
+      auto resp = HttpResponse::newHttpJsonResponse(
+          Json::Value("Invalid or expired verification token"));
+      resp->setStatusCode(k404NotFound);
+      callback(resp);
+      return;
+    }
+
+    const std::string userId = res[0]["id"].as<std::string>();
+    const std::string email = res[0]["email"].as<std::string>();
+
+    dbClient->execSqlSync(
+        "UPDATE app_user SET email_verified = TRUE, "
+        "email_verification_token = NULL, updated_at = NOW() "
+        "WHERE id = $1",
+        userId);
+
+    // Issue JWT so the frontend can log in immediately
+    const std::string jwtToken =
+        jwt::create()
+            .set_issuer("project-calendar")
+            .set_type("JWT")
+            .set_payload_claim("user_id", jwt::claim(userId))
+            .set_expires_at(std::chrono::system_clock::now() +
+                            std::chrono::hours{24 * kTokenExpiryDays})
+            .sign(jwt::algorithm::hs256{getJwtSecret()});
+
+    Json::Value out;
+    out["success"] = true;
+    out["message"] = "Email verified successfully";
+    out["token"] = jwtToken;
+    Json::Value userJson;
+    userJson["id"] = userId;
+    userJson["email"] = email;
+    out["user"] = userJson;
+
+    auto resp = HttpResponse::newHttpJsonResponse(out);
+    resp->setStatusCode(k200OK);
+    callback(resp);
+  } catch (const std::exception& e) {
+    LOG_ERROR << "verifyEmail failed: " << e.what();
+    auto resp =
+        HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
+    resp->setStatusCode(k500InternalServerError);
+    callback(resp);
   }
 }

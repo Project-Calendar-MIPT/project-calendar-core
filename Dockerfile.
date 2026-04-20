@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
     zlib1g-dev \
     libyaml-cpp0.7 \
     pkg-config \
+    librdkafka-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Drogon framework
@@ -71,6 +72,8 @@ RUN apt-get update && apt-get install -y \
     libssl3 \
     uuid-runtime \
     libyaml-cpp-dev \
+    librdkafka1 \
+    librdkafka++1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
