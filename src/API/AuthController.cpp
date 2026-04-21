@@ -369,6 +369,24 @@ void AuthController::login(
             return;
           }
 
+          // Progressive rehash: upgrade hashes with cost > 6 (e.g. old rounds=10)
+          // BCrypt hash format: $2b$CC$... where CC is cost at positions 4-5
+          try {
+            if (passHash.size() >= 7 && std::stoi(passHash.substr(4, 2)) > 6) {
+              const std::string newHash = bcrypt::generateHash(password, 6);
+              const std::string userIdForRehash =
+                  row["id"].isNull() ? std::string() : row["id"].as<std::string>();
+              if (!userIdForRehash.empty()) {
+                auto dbClientRehash = drogon::app().getDbClient();
+                dbClientRehash->execSqlAsync(
+                    "UPDATE app_user SET password_hash = $1 WHERE id = $2",
+                    [](const drogon::orm::Result&) {},
+                    [](const std::exception_ptr&) {},
+                    newHash, userIdForRehash);
+              }
+            }
+          } catch (...) {}
+
           // Block login if email not yet verified
           bool emailVerified = true;
           if (!row["email_verified"].isNull()) {
@@ -427,7 +445,7 @@ void AuthController::login(
         }
       };
 
-  auto exceptPtrCb = [](const std::exception_ptr& ep) {
+  auto exceptPtrCb = [callbackCopy](const std::exception_ptr& ep) mutable {
     try {
       if (ep) std::rethrow_exception(ep);
     } catch (const std::exception& e) {
@@ -435,6 +453,10 @@ void AuthController::login(
     } catch (...) {
       LOG_WARN << "Unknown DB error in execSqlAsync (login)";
     }
+    auto resp = HttpResponse::newHttpJsonResponse(
+        Json::Value("Internal server error"));
+    resp->setStatusCode(k500InternalServerError);
+    callbackCopy(resp);
   };
 
   dbClient->execSqlAsync(
