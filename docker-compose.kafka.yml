@@ -1,6 +1,6 @@
 services:
   kafka:
-    image: bitnami/kafka:3.7
+    image: ghcr.io/bitnami/kafka:3.7
     container_name: project-calendar-kafka
     environment:
       - KAFKA_CFG_NODE_ID=0
