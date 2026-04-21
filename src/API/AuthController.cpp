@@ -145,7 +145,7 @@ void AuthController::registerUser(
       return;
     }
 
-    const std::string hash = bcrypt::generateHash(password);
+    const std::string hash = bcrypt::generateHash(password, 6);
     const bool skipVerify = skipEmailVerification();
     const std::string verificationToken = drogon::utils::getUuid();
 
