@@ -40,3 +40,4 @@ Thumbs.db
 *.gcov
 coverage/
 tests/venv/
+headers/jwt-cpp
