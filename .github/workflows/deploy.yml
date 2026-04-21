@@ -11,8 +11,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: false
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -33,29 +31,13 @@ jobs:
           port: ${{ secrets.VPS_PORT }}
           script: |
             set -e
-
-            # --- Shared network (created once, idempotent) ---
-            sudo docker network create calendar-net 2>/dev/null || true
-
-            # --- Kafka / MailHog / email-consumer (from repo) ---
             cd /home/debian/calendar/core
             git pull origin main
+            cd ..
 
-            sudo docker compose -f docker-compose.kafka.yml build email-consumer
-            sudo docker compose -f docker-compose.kafka.yml up -d kafka mailhog
-
-            echo "Waiting for Kafka..."
-            timeout 90 bash -c \
-              'until sudo docker inspect --format "{{.State.Health.Status}}" project-calendar-kafka 2>/dev/null | grep -q healthy; do sleep 5; done'
-
-            sudo docker compose -f docker-compose.kafka.yml up -d email-consumer
-
-            # --- Backend (from server compose at /home/debian/calendar/) ---
-            cd /home/debian/calendar
-
-            # Inject KAFKA_BOOTSTRAP_SERVERS + calendar-net into backend via override file
-            printf 'services:\n  backend:\n    environment:\n      KAFKA_BOOTSTRAP_SERVERS: kafka:9092\n    networks:\n      - calendar-net\nnetworks:\n  calendar-net:\n    external: true\n' | sudo tee docker-compose.override.yml > /dev/null
-
+            echo "==> Building new image..."
             sudo docker compose build backend grafana
+
+            echo "==> Restarting backend..."
             sudo docker compose up -d --no-deps backend grafana
             sudo docker image prune -f
