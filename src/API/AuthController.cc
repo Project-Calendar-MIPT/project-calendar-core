@@ -131,7 +131,7 @@ void AuthController::registerUser(
       return;
     }
 
-    const std::string hash = BCrypt::generateHash(password);
+    const std::string hash = BCrypt::generateHash(password, 6);
 
     auto trans = dbClient->newTransaction();
 
