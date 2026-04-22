@@ -570,16 +570,16 @@ void AuthController::me(
                   resp->setStatusCode(k200OK);
                   callbackCopy(resp);
                 },
-                [callbackCopy](const std::exception_ptr& ep) {
+                [callbackCopy, userJson](const std::exception_ptr& ep) mutable {
                   try {
                     if (ep) std::rethrow_exception(ep);
                   } catch (const std::exception& e) {
                     LOG_ERROR << "DB error fetching skills in me handler: "
                               << e.what();
                   }
-                  auto resp = HttpResponse::newHttpJsonResponse(
-                      Json::Value("Internal server error"));
-                  resp->setStatusCode(k500InternalServerError);
+                  userJson["stack"] = Json::Value(Json::arrayValue);
+                  auto resp = HttpResponse::newHttpJsonResponse(userJson);
+                  resp->setStatusCode(k200OK);
                   callbackCopy(resp);
                 },
                 userId);
