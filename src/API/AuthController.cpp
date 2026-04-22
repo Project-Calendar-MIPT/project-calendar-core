@@ -312,7 +312,7 @@ void AuthController::registerUser(
     }
     LOG_ERROR << "registerUser failed: " << what;
     auto resp =
-        HttpResponse::newHttpJsonResponse(Json::Value("Internal server error: " + what));
+        HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
     resp->setStatusCode(k500InternalServerError);
     callback(resp);
     return;
