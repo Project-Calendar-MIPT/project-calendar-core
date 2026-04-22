@@ -55,7 +55,7 @@ jobs:
 
             # Inject KAFKA_BOOTSTRAP_SERVERS + calendar-net into backend via override file
             # Include 'default' network so backend keeps DB access (override replaces, not merges, implicit default)
-            printf 'services:\n  backend:\n    environment:\n      KAFKA_BOOTSTRAP_SERVERS: kafka:9092\n    networks:\n      - default\n      - calendar-net\nnetworks:\n  calendar-net:\n    external: true\n' | sudo tee docker-compose.override.yml > /dev/null
+            printf 'services:\n  backend:\n    environment:\n      KAFKA_BOOTSTRAP_SERVERS: kafka:9092\n      SKIP_EMAIL_VERIFICATION: "true"\n    networks:\n      - default\n      - calendar-net\nnetworks:\n  calendar-net:\n    external: true\n' | sudo tee docker-compose.override.yml > /dev/null
 
             sudo docker compose build backend grafana
             sudo docker compose up -d --no-deps backend grafana
