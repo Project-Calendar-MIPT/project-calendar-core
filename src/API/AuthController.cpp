@@ -222,19 +222,25 @@ void AuthController::registerUser(
     }
 
     if (!stackJson.empty()) {
-      drogon::orm::Mapper<UserSkill> skillMapper(trans);
       for (Json::UInt i = 0; i < stackJson.size(); ++i) {
         const Json::Value item = stackJson[i];
         if (!item.isObject() || !item.isMember("name")) continue;
 
-        UserSkill skill;
-        skill.setUserId(createdUserId);
-        skill.setName(item["name"].asString());
-        if (item.isMember("experience_level") &&
-            item["experience_level"].isString()) {
-          skill.setExperienceLevel(item["experience_level"].asString());
+        const std::string skillName = item["name"].asString();
+        if (skillName.empty()) continue;
+
+        if (item.isMember("experience_level") && item["experience_level"].isString()) {
+          const std::string expLevel = item["experience_level"].asString();
+          trans->execSqlSync(
+              "INSERT INTO user_skill (user_id, name, experience_level) "
+              "VALUES ($1, $2, $3) ON CONFLICT (user_id, name) DO NOTHING",
+              createdUserId, skillName, expLevel);
+        } else {
+          trans->execSqlSync(
+              "INSERT INTO user_skill (user_id, name) "
+              "VALUES ($1, $2) ON CONFLICT (user_id, name) DO NOTHING",
+              createdUserId, skillName);
         }
-        skillMapper.insert(skill);
       }
     }
 
