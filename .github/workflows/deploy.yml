@@ -59,4 +59,11 @@ jobs:
 
             sudo docker compose build backend grafana
             sudo docker compose up -d --no-deps backend grafana
+
+            # Apply any missing migrations (all use IF NOT EXISTS — safe to re-run)
+            echo "Applying migrations..."
+            for sql in /home/debian/calendar/core/migrations/*.sql; do
+              sudo docker exec -i project-calendar-db psql -U pc_admin -d project_calendar < "$sql" 2>&1 | grep -v "already exists" || true
+            done
+
             sudo docker image prune -f
