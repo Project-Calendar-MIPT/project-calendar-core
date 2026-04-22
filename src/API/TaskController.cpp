@@ -1352,9 +1352,13 @@ void TaskController::getSubtasks(
                t.created_at::text AS created_at, t.updated_at::text AS updated_at,
                ta.assigned_hours, tr.role
         FROM "task" t
-        JOIN "task_assignment" ta ON ta.task_id = t.id
-        LEFT JOIN "task_role_assignment" tr ON tr.task_id = t.id AND tr.user_id = ta.user_id
-        WHERE ta.user_id = $1 AND t.parent_task_id = $2
+        LEFT JOIN "task_assignment" ta ON ta.task_id = t.id AND ta.user_id = $1
+        LEFT JOIN "task_role_assignment" tr ON tr.task_id = t.id AND tr.user_id = $1
+        WHERE t.parent_task_id = $2
+          AND (
+            EXISTS (SELECT 1 FROM "task_assignment" WHERE task_id = $2 AND user_id = $1)
+            OR EXISTS (SELECT 1 FROM "task" WHERE id = $2 AND created_by = $1)
+          )
         ORDER BY t.created_at DESC
       )sql",
         userId, parentId);
