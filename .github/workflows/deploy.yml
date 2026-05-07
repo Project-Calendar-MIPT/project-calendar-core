@@ -20,8 +20,53 @@ jobs:
       - name: Build Docker image (compile check)
         run: docker build -f Dockerfile. -t calendar-backend:ci .
 
-  deploy:
+  test:
     needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: pip install -r tests/requirements.txt
+
+      - name: Start test environment
+        run: docker compose -f tests/docker-compose.test.yml up -d --build
+
+      - name: Wait for backend
+        run: |
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:8081/ > /dev/null 2>&1; then
+              echo "Backend is ready"
+              exit 0
+            fi
+            echo "Waiting for backend... ($i/30)"
+            sleep 3
+          done
+          echo "Backend failed to start"
+          exit 1
+
+      - name: Run integration tests
+        run: |
+          cd tests
+          python -m pytest test_api.py -v --tb=short
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose -f tests/docker-compose.test.yml logs
+
+      - name: Teardown
+        if: always()
+        run: docker compose -f tests/docker-compose.test.yml down -v
+
+  deploy:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to VPS via SSH
@@ -34,7 +79,6 @@ jobs:
           script: |
             set -e
 
-            # --- Kafka / MailHog / email-consumer (from repo) ---
             cd /home/user/calendar
             git submodule update --remote --recursive --init
 
