@@ -166,6 +166,7 @@ void UsersController::setWorkSchedule(
       callback(resp);
       return;
     }
+    if (dow == 7) dow = 0;  // ISO Sunday(7) → DB Sunday(0)
     if (daysSet.find(dow) != daysSet.end()) {
       auto resp = HttpResponse::newHttpJsonResponse(
           Json::Value("Duplicate day_of_week values are not allowed"));
@@ -240,6 +241,7 @@ void UsersController::setWorkSchedule(
     for (Json::UInt i = 0; i < arr.size(); ++i) {
       const Json::Value& el = arr[i];
       int dow = el["day_of_week"].asInt();
+      if (dow == 7) dow = 0;  // ISO Sunday(7) → DB Sunday(0)
       bool isWorking = el["is_working_day"].asBool();
 
       // Only store working days — non-working days have no DB row
