@@ -61,7 +61,9 @@ def send_email(to: str, display_name: str, verification_url: str) -> None:
 
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
         if SMTP_TLS:
+            server.ehlo()
             server.starttls()
+            server.ehlo()
         if SMTP_USER and SMTP_PASSWORD:
             server.login(SMTP_USER, SMTP_PASSWORD)
         server.sendmail(EMAIL_FROM, [to], msg.as_string())

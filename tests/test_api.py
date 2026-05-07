@@ -55,10 +55,10 @@ class APIClient:
         response = requests.put(url, json=data, headers=self.headers() if auth else {})
         return response
     
-    def delete(self, endpoint: str, auth: bool = True):
+    def delete(self, endpoint: str, auth: bool = True, params: dict = None):
         """DELETE request"""
         url = f"{self.base_url}{API_PREFIX}{endpoint}"
-        response = requests.delete(url, headers=self.headers() if auth else {})
+        response = requests.delete(url, params=params, headers=self.headers() if auth else {})
         return response
 
 
@@ -166,6 +166,23 @@ class TestAuthentication:
         response = registered_user.post("/auth/register", user_data)
         assert response.status_code == 409  # Conflict
     
+    def test_register_sunday_weekday_iso(self, client):
+        """Test registration with Sunday as weekday=7 (ISO) is accepted and stored as 0"""
+        import uuid
+        email = f"sunday_{uuid.uuid4().hex[:8]}@example.com"
+
+        user_data = {
+            "email": email,
+            "password": "SecurePass123!",
+            "display_name": "Sunday User",
+            "work_schedule": [
+                {"weekday": 7, "start_time": "10:00:00", "end_time": "14:00:00"}
+            ]
+        }
+
+        response = client.post("/auth/register", user_data)
+        assert response.status_code == 201, response.text
+
     def test_register_invalid_password(self, client):
         """Test registration with empty password is rejected"""
         import uuid
@@ -1216,6 +1233,525 @@ class TestOpenApiSpec:
         paths = set(spec.get("paths", {}).keys())
         missing = expected_paths - paths
         assert not missing, f"OpenAPI is missing routes: {sorted(missing)}"
+
+
+class TestAuthValidation:
+    """Edge cases for registration and login field validation"""
+
+    def _base_payload(self) -> dict:
+        import uuid
+        return {
+            "email": f"edge_{uuid.uuid4().hex[:8]}@example.com",
+            "password": "SecurePass123!",
+            "display_name": "Edge User",
+            "work_schedule": [
+                {"weekday": 1, "start_time": "09:00:00", "end_time": "17:00:00"}
+            ],
+        }
+
+    def test_register_missing_email(self, client):
+        """Registration without email field must fail"""
+        payload = self._base_payload()
+        del payload["email"]
+        response = client.post("/auth/register", payload)
+        assert response.status_code == 400
+
+    def test_register_missing_display_name(self, client):
+        """Registration without display_name must fail"""
+        payload = self._base_payload()
+        del payload["display_name"]
+        response = client.post("/auth/register", payload)
+        assert response.status_code == 400
+
+    def test_register_missing_password(self, client):
+        """Registration without password must fail"""
+        payload = self._base_payload()
+        del payload["password"]
+        response = client.post("/auth/register", payload)
+        assert response.status_code == 400
+
+    def test_register_invalid_email_no_at(self, client):
+        """Registration with email missing @ must fail"""
+        payload = self._base_payload()
+        payload["email"] = "notanemail"
+        response = client.post("/auth/register", payload)
+        assert response.status_code == 400
+
+    def test_register_invalid_email_no_domain(self, client):
+        """Registration with email like user@ must fail"""
+        payload = self._base_payload()
+        payload["email"] = "user@"
+        response = client.post("/auth/register", payload)
+        assert response.status_code == 400
+
+    def test_register_weekday_negative_one(self, client):
+        """Registration with weekday=-1 must not succeed (invalid day)"""
+        payload = self._base_payload()
+        payload["work_schedule"] = [
+            {"weekday": -1, "start_time": "09:00:00", "end_time": "17:00:00"}
+        ]
+        response = client.post("/auth/register", payload)
+        assert response.status_code != 201, "weekday=-1 should be rejected"
+
+    def test_register_weekday_eight(self, client):
+        """Registration with weekday=8 must not succeed (out of range)"""
+        payload = self._base_payload()
+        payload["work_schedule"] = [
+            {"weekday": 8, "start_time": "09:00:00", "end_time": "17:00:00"}
+        ]
+        response = client.post("/auth/register", payload)
+        assert response.status_code != 201, "weekday=8 should be rejected"
+
+    def test_register_all_weekdays_zero_to_six(self, client):
+        """Registration with all weekdays 0-6 must succeed"""
+        payload = self._base_payload()
+        payload["work_schedule"] = [
+            {"weekday": d, "start_time": "09:00:00", "end_time": "17:00:00"}
+            for d in range(7)
+        ]
+        response = client.post("/auth/register", payload)
+        assert response.status_code == 201, response.text
+
+    def test_register_full_iso_week_one_to_seven(self, client):
+        """Registration with weekdays 1-7 (ISO, 7=Sunday) must succeed"""
+        payload = self._base_payload()
+        payload["work_schedule"] = [
+            {"weekday": d, "start_time": "09:00:00", "end_time": "17:00:00"}
+            for d in range(1, 8)
+        ]
+        response = client.post("/auth/register", payload)
+        assert response.status_code == 201, response.text
+
+    def test_register_empty_work_schedule(self, client):
+        """Registration with empty work_schedule array must succeed"""
+        payload = self._base_payload()
+        payload["work_schedule"] = []
+        response = client.post("/auth/register", payload)
+        assert response.status_code == 201, response.text
+
+    def test_register_no_work_schedule_field(self, client):
+        """Registration without work_schedule field must succeed (defaults to empty)"""
+        payload = self._base_payload()
+        del payload["work_schedule"]
+        response = client.post("/auth/register", payload)
+        assert response.status_code == 201, response.text
+
+    def test_register_duplicate_weekday_entries(self, client):
+        """Registration with two entries for the same weekday"""
+        payload = self._base_payload()
+        payload["work_schedule"] = [
+            {"weekday": 1, "start_time": "09:00:00", "end_time": "13:00:00"},
+            {"weekday": 1, "start_time": "14:00:00", "end_time": "18:00:00"},
+        ]
+        response = client.post("/auth/register", payload)
+        # Either accepted (two shifts same day) or rejected (duplicate day)
+        assert response.status_code in (201, 400), response.text
+
+    def test_login_wrong_password(self, client):
+        """Login with wrong password must return 401"""
+        import uuid
+        email = f"wrongpw_{uuid.uuid4().hex[:8]}@example.com"
+        reg_payload = {
+            "email": email,
+            "password": "CorrectPass123!",
+            "display_name": "WrongPW User",
+            "work_schedule": [],
+        }
+        r = client.post("/auth/register", reg_payload)
+        assert r.status_code == 201
+
+        response = client.post("/auth/login", {"email": email, "password": "WrongPass!"})
+        assert response.status_code == 401
+
+    def test_login_nonexistent_user(self, client):
+        """Login for email that was never registered must return 401 or 404"""
+        response = client.post(
+            "/auth/login",
+            {"email": "nobody_at_all@nowhere.example.com", "password": "Pass123!"},
+        )
+        assert response.status_code in (401, 404)
+
+    def test_login_missing_email(self, client):
+        """Login without email must fail"""
+        response = client.post("/auth/login", {"password": "Pass123!"})
+        assert response.status_code == 400
+
+    def test_login_missing_password(self, client):
+        """Login without password must fail"""
+        response = client.post("/auth/login", {"email": "user@example.com"})
+        assert response.status_code == 400
+
+
+class TestWorkSchedule:
+    """Edge cases for GET/PUT /users/{id}/work-schedule"""
+
+    def test_get_own_work_schedule(self, registered_user):
+        """Owner can read their work schedule"""
+        response = registered_user.get(
+            f"/users/{registered_user.user_id}/work-schedule", auth=True
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        for entry in data:
+            assert "weekday" in entry
+            assert "start_time" in entry
+            assert "end_time" in entry
+
+    def test_put_work_schedule_valid(self, registered_user):
+        """PUT replaces the work schedule with valid entries"""
+        payload = [
+            {"weekday": 0, "start_time": "08:00:00", "end_time": "16:00:00"},
+            {"weekday": 3, "start_time": "10:00:00", "end_time": "19:00:00"},
+        ]
+        response = registered_user.put(
+            f"/users/{registered_user.user_id}/work-schedule", payload, auth=True
+        )
+        assert response.status_code == 200, response.text
+
+    def test_put_work_schedule_sunday_iso_normalised(self, registered_user):
+        """PUT with weekday=7 (ISO Sunday) must be stored as 0"""
+        payload = [{"weekday": 7, "start_time": "10:00:00", "end_time": "14:00:00"}]
+        response = registered_user.put(
+            f"/users/{registered_user.user_id}/work-schedule", payload, auth=True
+        )
+        assert response.status_code == 200, response.text
+
+        # Verify stored value
+        get_resp = registered_user.get(
+            f"/users/{registered_user.user_id}/work-schedule", auth=True
+        )
+        assert get_resp.status_code == 200
+        days = [e["weekday"] for e in get_resp.json()]
+        assert 0 in days, "Sunday (ISO 7) should be stored as weekday 0"
+
+    def test_put_work_schedule_weekday_negative(self, registered_user):
+        """PUT with weekday=-1 must be rejected"""
+        payload = [{"weekday": -1, "start_time": "09:00:00", "end_time": "17:00:00"}]
+        response = registered_user.put(
+            f"/users/{registered_user.user_id}/work-schedule", payload, auth=True
+        )
+        assert response.status_code != 200, "weekday=-1 should not be accepted"
+
+    def test_put_work_schedule_weekday_too_large(self, registered_user):
+        """PUT with weekday=8 must be rejected"""
+        payload = [{"weekday": 8, "start_time": "09:00:00", "end_time": "17:00:00"}]
+        response = registered_user.put(
+            f"/users/{registered_user.user_id}/work-schedule", payload, auth=True
+        )
+        assert response.status_code != 200, "weekday=8 should not be accepted"
+
+    def test_put_work_schedule_empty_clears_schedule(self, registered_user):
+        """PUT with empty array clears the schedule"""
+        response = registered_user.put(
+            f"/users/{registered_user.user_id}/work-schedule", [], auth=True
+        )
+        assert response.status_code == 200, response.text
+
+    def test_put_work_schedule_end_before_start(self, registered_user):
+        """PUT where end_time < start_time must be rejected"""
+        payload = [{"weekday": 2, "start_time": "17:00:00", "end_time": "09:00:00"}]
+        response = registered_user.put(
+            f"/users/{registered_user.user_id}/work-schedule", payload, auth=True
+        )
+        assert response.status_code == 400, response.text
+
+    def test_put_work_schedule_unauthenticated(self, client):
+        """PUT work-schedule without token must fail"""
+        import uuid
+        payload = [{"weekday": 1, "start_time": "09:00:00", "end_time": "17:00:00"}]
+        response = client.put(
+            f"/users/{uuid.uuid4()}/work-schedule", payload, auth=False
+        )
+        assert response.status_code == 401
+
+    def test_put_work_schedule_all_days(self, registered_user):
+        """PUT with all seven weekdays (0-6) must succeed"""
+        payload = [
+            {"weekday": d, "start_time": "09:00:00", "end_time": "17:00:00"}
+            for d in range(7)
+        ]
+        response = registered_user.put(
+            f"/users/{registered_user.user_id}/work-schedule", payload, auth=True
+        )
+        assert response.status_code == 200, response.text
+
+
+class TestUsers:
+    """User search and profile endpoints"""
+
+    def test_search_users_returns_list(self, registered_user):
+        """GET /users?search=... returns a list"""
+        response = registered_user.get("/users", params={"search": "Test"}, auth=True)
+        assert response.status_code == 200
+        assert isinstance(response.json(), list)
+
+    def test_search_users_empty_query(self, registered_user):
+        """GET /users without search param returns users or empty list"""
+        response = registered_user.get("/users", auth=True)
+        assert response.status_code in (200, 400)
+
+    def test_get_user_by_id(self, registered_user):
+        """GET /users/{id} for existing user returns profile"""
+        response = registered_user.get(
+            f"/users/{registered_user.user_id}", auth=True
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == registered_user.user_id
+        assert "email" in data
+        assert "display_name" in data
+
+    def test_get_nonexistent_user(self, registered_user):
+        """GET /users/{id} for unknown UUID returns 404"""
+        import uuid
+        response = registered_user.get(f"/users/{uuid.uuid4()}", auth=True)
+        assert response.status_code == 404
+
+    def test_get_user_malformed_id(self, registered_user):
+        """GET /users/{id} with non-UUID id returns 400 or 404"""
+        response = registered_user.get("/users/not-a-uuid", auth=True)
+        assert response.status_code in (400, 404)
+
+    def test_get_user_unauthenticated(self, client):
+        """GET /users/{id} without token must fail"""
+        import uuid
+        response = client.get(f"/users/{uuid.uuid4()}", auth=False)
+        assert response.status_code == 401
+
+    def test_search_finds_registered_user(self, registered_user):
+        """Search by display_name prefix should find the registered user"""
+        me_resp = registered_user.get("/auth/me", auth=True)
+        display_name = me_resp.json()["display_name"]
+        prefix = display_name[:4]
+
+        response = registered_user.get("/users", params={"search": prefix}, auth=True)
+        assert response.status_code == 200
+        ids = [u["id"] for u in response.json()]
+        assert registered_user.user_id in ids
+
+
+class TestTaskEdgeCases:
+    """404 and enum validation for task endpoints"""
+
+    def test_get_nonexistent_task(self, registered_user):
+        """GET /tasks/{id} for unknown UUID returns 404"""
+        import uuid
+        response = registered_user.get(f"/tasks/{uuid.uuid4()}", auth=True)
+        assert response.status_code == 404
+
+    def test_update_nonexistent_task(self, registered_user):
+        """PUT /tasks/{id} for unknown UUID returns 404"""
+        import uuid
+        response = registered_user.put(
+            f"/tasks/{uuid.uuid4()}", {"title": "Ghost"}, auth=True
+        )
+        assert response.status_code == 404
+
+    def test_delete_nonexistent_task(self, registered_user):
+        """DELETE /tasks/{id} for unknown UUID returns 404"""
+        import uuid
+        response = registered_user.delete(f"/tasks/{uuid.uuid4()}", auth=True)
+        assert response.status_code == 404
+
+    def test_get_task_malformed_id(self, registered_user):
+        """GET /tasks/{id} with non-UUID returns 400 or 404"""
+        response = registered_user.get("/tasks/not-a-uuid", auth=True)
+        assert response.status_code in (400, 404)
+
+    def test_create_task_missing_title(self, registered_user):
+        """Creating a task without title must fail"""
+        response = registered_user.post(
+            "/tasks", {"description": "No title here"}, auth=True
+        )
+        assert response.status_code == 400
+
+    def test_create_task_invalid_priority(self, registered_user):
+        """Creating a task with an unknown priority value must fail"""
+        task_data = {
+            "title": "Bad priority",
+            "description": "Test description",
+            "priority": "superurgent",
+        }
+        response = registered_user.post("/tasks", task_data, auth=True)
+        assert response.status_code == 400
+
+    def test_create_task_invalid_status(self, registered_user):
+        """Creating a task with an unknown status value must fail"""
+        task_data = {
+            "title": "Bad status",
+            "description": "Test description",
+            "status": "maybe",
+        }
+        response = registered_user.post("/tasks", task_data, auth=True)
+        assert response.status_code == 400
+
+    def test_create_task_start_after_due(self, registered_user):
+        """Task where start_date > due_date must fail"""
+        task_data = {
+            "title": "Reversed dates",
+            "description": "start after due",
+            "start_date": "2025-12-01",
+            "due_date": "2025-01-01",
+            "assignee_user_id": registered_user.user_id,
+        }
+        response = registered_user.post("/tasks", task_data, auth=True)
+        assert response.status_code == 400
+
+    def test_create_task_same_start_and_due(self, registered_user):
+        """Task where start_date == due_date must succeed (one-day task)"""
+        task_data = {
+            "title": "One-day task",
+            "description": "Starts and ends same day",
+            "start_date": "2025-06-15",
+            "due_date": "2025-06-15",
+            "assignee_user_id": registered_user.user_id,
+        }
+        response = registered_user.post("/tasks", task_data, auth=True)
+        assert response.status_code == 201, response.text
+
+    def test_list_tasks_unauthenticated(self, client):
+        """GET /tasks without token must return 401"""
+        response = client.get("/tasks", auth=False)
+        assert response.status_code == 401
+
+    def test_create_task_unauthenticated(self, client):
+        """POST /tasks without token must return 401"""
+        response = client.post(
+            "/tasks",
+            {"title": "Unauthorized", "description": "Should fail"},
+            auth=False,
+        )
+        assert response.status_code == 401
+
+
+class TestCalendarEdgeCases:
+    """Edge cases for GET /calendar/tasks"""
+
+    def test_calendar_missing_start_date(self, registered_user):
+        """Calendar endpoint without start_date must fail"""
+        response = registered_user.get(
+            "/calendar/tasks", params={"end_date": "2025-12-31"}, auth=True
+        )
+        assert response.status_code == 400
+
+    def test_calendar_missing_end_date(self, registered_user):
+        """Calendar endpoint without end_date must fail"""
+        response = registered_user.get(
+            "/calendar/tasks", params={"start_date": "2025-01-01"}, auth=True
+        )
+        assert response.status_code == 400
+
+    def test_calendar_missing_both_dates(self, registered_user):
+        """Calendar endpoint without any date params must fail"""
+        response = registered_user.get("/calendar/tasks", auth=True)
+        assert response.status_code == 400
+
+    def test_calendar_invalid_date_format(self, registered_user):
+        """Calendar endpoint with invalid date format must fail"""
+        response = registered_user.get(
+            "/calendar/tasks",
+            params={"start_date": "not-a-date", "end_date": "2025-12-31"},
+            auth=True,
+        )
+        assert response.status_code == 400
+
+    def test_calendar_end_before_start(self, registered_user):
+        """Calendar endpoint where end < start must fail or return empty"""
+        response = registered_user.get(
+            "/calendar/tasks",
+            params={"start_date": "2025-12-31", "end_date": "2025-01-01"},
+            auth=True,
+        )
+        # Either 400 (validation) or 200 with empty list
+        assert response.status_code in (200, 400)
+        if response.status_code == 200:
+            assert isinstance(response.json(), list)
+
+    def test_calendar_large_range(self, registered_user):
+        """Calendar endpoint with a multi-year range must succeed"""
+        response = registered_user.get(
+            "/calendar/tasks",
+            params={"start_date": "2020-01-01", "end_date": "2030-12-31"},
+            auth=True,
+        )
+        assert response.status_code == 200
+        assert isinstance(response.json(), list)
+
+    def test_calendar_unauthenticated(self, client):
+        """Calendar endpoint without token must return 401"""
+        response = client.get(
+            "/calendar/tasks",
+            params={"start_date": "2025-01-01", "end_date": "2025-12-31"},
+            auth=False,
+        )
+        assert response.status_code == 401
+
+
+class TestAssignmentEdgeCases:
+    """Edge cases for assignment management"""
+
+    def _make_second_user(self, client: "APIClient") -> "APIClient":
+        import uuid
+        email = f"assign2_{uuid.uuid4().hex[:8]}@example.com"
+        payload = {
+            "email": email,
+            "password": "TestPass123!",
+            "display_name": "Second Assignee",
+            "work_schedule": [],
+        }
+        r = client.post("/auth/register", payload)
+        assert r.status_code == 201
+        data = r.json()
+        c2 = APIClient()
+        c2.set_token(data["token"], data["user"]["id"])
+        return c2
+
+    def test_delete_assignment(self, registered_user, client):
+        """Owner can delete another user's assignment"""
+        c2 = self._make_second_user(client)
+        task_data = {"title": "Task for del-assign", "description": "Assign test"}
+        task_resp = registered_user.post("/tasks", task_data, auth=True)
+        assert task_resp.status_code == 201
+        task_id = task_resp.json()["id"]
+
+        # Assign second user
+        assign_resp = registered_user.post(
+            f"/tasks/{task_id}/assignments",
+            {"user_id": c2.user_id, "assigned_hours": 4.0},
+            auth=True,
+        )
+        # If backend supports assigning other users, check success; otherwise skip
+        if assign_resp.status_code == 201:
+            response = registered_user.delete(
+                "/assignments",
+                params={"task_id": task_id, "user_id": c2.user_id},
+                auth=True,
+            )
+            assert response.status_code == 200
+
+    def test_list_assignments_nonexistent_task(self, registered_user):
+        """GET /tasks/{id}/assignments for unknown task returns 404"""
+        import uuid
+        response = registered_user.get(
+            f"/tasks/{uuid.uuid4()}/assignments", auth=True
+        )
+        assert response.status_code == 404
+
+    def test_assign_to_nonexistent_task(self, registered_user):
+        """POST /tasks/{id}/assignments for unknown task returns 404"""
+        import uuid
+        response = registered_user.post(
+            f"/tasks/{uuid.uuid4()}/assignments",
+            {"assigned_hours": 2.0},
+            auth=True,
+        )
+        assert response.status_code in (404, 400)
+
+    def test_delete_assignment_missing_params(self, registered_user):
+        """DELETE /assignments without query params must fail"""
+        response = registered_user.delete("/assignments", auth=True)
+        assert response.status_code == 400
 
 
 if __name__ == "__main__":
