@@ -22,7 +22,10 @@ log = logging.getLogger(__name__)
 KAFKA_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 SMTP_HOST = os.environ.get("SMTP_HOST", "mailhog")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "1025"))
-EMAIL_FROM = os.environ.get("EMAIL_FROM", "noreply@project-calendar.dev")
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+SMTP_TLS = os.environ.get("SMTP_TLS", "false").lower() == "true"
+EMAIL_FROM = os.environ.get("EMAIL_FROM", "noreply@mipt.impelix.dev")
 TOPIC = "user-registration"
 GROUP_ID = "email-consumer-group"
 
@@ -57,6 +60,10 @@ def send_email(to: str, display_name: str, verification_url: str) -> None:
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
+        if SMTP_TLS:
+            server.starttls()
+        if SMTP_USER and SMTP_PASSWORD:
+            server.login(SMTP_USER, SMTP_PASSWORD)
         server.sendmail(EMAIL_FROM, [to], msg.as_string())
 
     log.info("Sent verification email to %s", to)

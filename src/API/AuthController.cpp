@@ -210,7 +210,9 @@ void AuthController::registerUser(
 
         UserWorkSchedule ws;
         ws.setUserId(createdUserId);
-        ws.setWeekday(static_cast<int32_t>(item["weekday"].asInt()));
+        int32_t weekday = static_cast<int32_t>(item["weekday"].asInt());
+        if (weekday == 7) weekday = 0;  // ISO Sunday(7) → DB Sunday(0)
+        ws.setWeekday(weekday);
         if (item.isMember("start_time") && item["start_time"].isString()) {
           ws.setStartTime(item["start_time"].asString());
         }
