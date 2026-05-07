@@ -17,8 +17,18 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker image (compile check)
+      - name: Build Docker image
         run: docker build -f Dockerfile. -t calendar-backend:ci .
+
+      - name: Export image
+        run: docker save calendar-backend:ci | gzip > /tmp/backend-image.tar.gz
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-image
+          path: /tmp/backend-image.tar.gz
+          retention-days: 1
 
   test:
     needs: build
@@ -36,8 +46,29 @@ jobs:
       - name: Install test dependencies
         run: pip install -r tests/requirements.txt
 
+      - name: Download image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-image
+          path: /tmp
+
+      - name: Load Docker image
+        run: docker load < /tmp/backend-image.tar.gz
+
+      - name: Create CI compose override
+        run: |
+          cat > tests/docker-compose.ci-override.yml << 'EOF'
+          services:
+            backend-test:
+              image: calendar-backend:ci
+          EOF
+
       - name: Start test environment
-        run: docker compose -f tests/docker-compose.test.yml up -d --build
+        run: |
+          docker compose \
+            -f tests/docker-compose.test.yml \
+            -f tests/docker-compose.ci-override.yml \
+            up -d --no-build
 
       - name: Wait for backend
         run: |
@@ -59,11 +90,19 @@ jobs:
 
       - name: Dump logs on failure
         if: failure()
-        run: docker compose -f tests/docker-compose.test.yml logs
+        run: |
+          docker compose \
+            -f tests/docker-compose.test.yml \
+            -f tests/docker-compose.ci-override.yml \
+            logs
 
       - name: Teardown
         if: always()
-        run: docker compose -f tests/docker-compose.test.yml down -v
+        run: |
+          docker compose \
+            -f tests/docker-compose.test.yml \
+            -f tests/docker-compose.ci-override.yml \
+            down -v
 
   deploy:
     needs: test
