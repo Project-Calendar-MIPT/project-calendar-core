@@ -34,9 +34,6 @@ jobs:
           script: |
             set -e
 
-            # --- Shared network (created once, idempotent) ---
-            sudo docker network create calendar-net 2>/dev/null || true
-
             # --- Kafka / MailHog / email-consumer (from repo) ---
             cd /home/user/calendar
             git submodule update --remote --recursive --init
