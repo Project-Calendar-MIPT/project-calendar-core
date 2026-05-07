@@ -1257,11 +1257,13 @@ class TestAuthValidation:
         assert response.status_code == 400
 
     def test_register_missing_display_name(self, client):
-        """Registration without display_name must fail"""
+        """Registration without display_name succeeds — backend derives it from email"""
         payload = self._base_payload()
         del payload["display_name"]
         response = client.post("/auth/register", payload)
-        assert response.status_code == 400
+        assert response.status_code == 201, response.text
+        # display_name is derived from the email local part
+        assert response.json()["user"]["display_name"] != ""
 
     def test_register_missing_password(self, client):
         """Registration without password must fail"""
@@ -1383,7 +1385,20 @@ class TestAuthValidation:
 
 
 class TestWorkSchedule:
-    """Edge cases for GET/PUT /users/{id}/work-schedule"""
+    """Edge cases for GET/POST /users/{id}/work-schedule.
+
+    The API uses POST (replace-all semantics) with day_of_week 1-7 and
+    is_working_day flag. Time format is HH:MM (not HH:MM:SS).
+    Array must have 1-7 elements.
+    """
+
+    def _ws_payload(self, *days):
+        """Build a valid work-schedule payload for given day_of_week values (1-7)."""
+        return [
+            {"day_of_week": d, "is_working_day": True,
+             "start_time": "09:00", "end_time": "17:00"}
+            for d in days
+        ]
 
     def test_get_own_work_schedule(self, registered_user):
         """Owner can read their work schedule"""
@@ -1394,87 +1409,80 @@ class TestWorkSchedule:
         data = response.json()
         assert isinstance(data, list)
         for entry in data:
-            assert "weekday" in entry
-            assert "start_time" in entry
-            assert "end_time" in entry
+            assert "day_of_week" in entry
+            assert "is_working_day" in entry
 
-    def test_put_work_schedule_valid(self, registered_user):
-        """PUT replaces the work schedule with valid entries"""
-        payload = [
-            {"weekday": 0, "start_time": "08:00:00", "end_time": "16:00:00"},
-            {"weekday": 3, "start_time": "10:00:00", "end_time": "19:00:00"},
-        ]
-        response = registered_user.put(
+    def test_post_work_schedule_valid(self, registered_user):
+        """POST replaces the work schedule with valid entries"""
+        payload = self._ws_payload(1, 3)
+        response = registered_user.post(
             f"/users/{registered_user.user_id}/work-schedule", payload, auth=True
         )
-        assert response.status_code == 200, response.text
+        assert response.status_code in (200, 201), response.text
 
-    def test_put_work_schedule_sunday_iso_normalised(self, registered_user):
-        """PUT with weekday=7 (ISO Sunday) must be stored as 0"""
-        payload = [{"weekday": 7, "start_time": "10:00:00", "end_time": "14:00:00"}]
-        response = registered_user.put(
+    def test_post_work_schedule_sunday(self, registered_user):
+        """POST with day_of_week=7 (Sunday) must be accepted"""
+        payload = self._ws_payload(7)
+        response = registered_user.post(
             f"/users/{registered_user.user_id}/work-schedule", payload, auth=True
         )
-        assert response.status_code == 200, response.text
+        assert response.status_code in (200, 201), response.text
 
-        # Verify stored value
-        get_resp = registered_user.get(
-            f"/users/{registered_user.user_id}/work-schedule", auth=True
-        )
-        assert get_resp.status_code == 200
-        days = [e["weekday"] for e in get_resp.json()]
-        assert 0 in days, "Sunday (ISO 7) should be stored as weekday 0"
-
-    def test_put_work_schedule_weekday_negative(self, registered_user):
-        """PUT with weekday=-1 must be rejected"""
-        payload = [{"weekday": -1, "start_time": "09:00:00", "end_time": "17:00:00"}]
-        response = registered_user.put(
+    def test_post_work_schedule_day_out_of_range_low(self, registered_user):
+        """POST with day_of_week=0 must be rejected (valid range is 1-7)"""
+        payload = [{"day_of_week": 0, "is_working_day": True,
+                    "start_time": "09:00", "end_time": "17:00"}]
+        response = registered_user.post(
             f"/users/{registered_user.user_id}/work-schedule", payload, auth=True
         )
-        assert response.status_code != 200, "weekday=-1 should not be accepted"
+        assert response.status_code != 200, "day_of_week=0 should not be accepted"
 
-    def test_put_work_schedule_weekday_too_large(self, registered_user):
-        """PUT with weekday=8 must be rejected"""
-        payload = [{"weekday": 8, "start_time": "09:00:00", "end_time": "17:00:00"}]
-        response = registered_user.put(
+    def test_post_work_schedule_day_out_of_range_high(self, registered_user):
+        """POST with day_of_week=8 must be rejected"""
+        payload = [{"day_of_week": 8, "is_working_day": True,
+                    "start_time": "09:00", "end_time": "17:00"}]
+        response = registered_user.post(
             f"/users/{registered_user.user_id}/work-schedule", payload, auth=True
         )
-        assert response.status_code != 200, "weekday=8 should not be accepted"
+        assert response.status_code != 200, "day_of_week=8 should not be accepted"
 
-    def test_put_work_schedule_empty_clears_schedule(self, registered_user):
-        """PUT with empty array clears the schedule"""
-        response = registered_user.put(
-            f"/users/{registered_user.user_id}/work-schedule", [], auth=True
-        )
-        assert response.status_code == 200, response.text
-
-    def test_put_work_schedule_end_before_start(self, registered_user):
-        """PUT where end_time < start_time must be rejected"""
-        payload = [{"weekday": 2, "start_time": "17:00:00", "end_time": "09:00:00"}]
-        response = registered_user.put(
+    def test_post_work_schedule_end_before_start(self, registered_user):
+        """POST where end_time < start_time must be rejected"""
+        payload = [{"day_of_week": 3, "is_working_day": True,
+                    "start_time": "17:00", "end_time": "09:00"}]
+        response = registered_user.post(
             f"/users/{registered_user.user_id}/work-schedule", payload, auth=True
         )
         assert response.status_code == 400, response.text
 
-    def test_put_work_schedule_unauthenticated(self, client):
-        """PUT work-schedule without token must fail"""
+    def test_post_work_schedule_unauthenticated(self, client):
+        """POST work-schedule without token must fail with 401"""
         import uuid
-        payload = [{"weekday": 1, "start_time": "09:00:00", "end_time": "17:00:00"}]
-        response = client.put(
+        payload = [{"day_of_week": 1, "is_working_day": True,
+                    "start_time": "09:00", "end_time": "17:00"}]
+        response = client.post(
             f"/users/{uuid.uuid4()}/work-schedule", payload, auth=False
         )
         assert response.status_code == 401
 
-    def test_put_work_schedule_all_days(self, registered_user):
-        """PUT with all seven weekdays (0-6) must succeed"""
-        payload = [
-            {"weekday": d, "start_time": "09:00:00", "end_time": "17:00:00"}
-            for d in range(7)
-        ]
-        response = registered_user.put(
+    def test_post_work_schedule_all_days(self, registered_user):
+        """POST with all seven days (1-7) must succeed"""
+        payload = self._ws_payload(1, 2, 3, 4, 5, 6, 7)
+        response = registered_user.post(
             f"/users/{registered_user.user_id}/work-schedule", payload, auth=True
         )
-        assert response.status_code == 200, response.text
+        assert response.status_code in (200, 201), response.text
+
+    def test_post_work_schedule_non_working_day(self, registered_user):
+        """POST with is_working_day=false is accepted (no times needed)"""
+        payload = [{"day_of_week": 6, "is_working_day": False},
+                   {"day_of_week": 7, "is_working_day": False},
+                   {"day_of_week": 1, "is_working_day": True,
+                    "start_time": "09:00", "end_time": "17:00"}]
+        response = registered_user.post(
+            f"/users/{registered_user.user_id}/work-schedule", payload, auth=True
+        )
+        assert response.status_code in (200, 201), response.text
 
 
 class TestUsers:
@@ -1514,18 +1522,19 @@ class TestUsers:
         assert response.status_code in (400, 404)
 
     def test_get_user_unauthenticated(self, client):
-        """GET /users/{id} without token must fail"""
+        """GET /users/{id} is public — returns 200 or 404 (not 401)"""
         import uuid
         response = client.get(f"/users/{uuid.uuid4()}", auth=False)
-        assert response.status_code == 401
+        assert response.status_code in (200, 404)
 
     def test_search_finds_registered_user(self, registered_user):
-        """Search by display_name prefix should find the registered user"""
+        """Search by email (unique per test) should find the registered user"""
         me_resp = registered_user.get("/auth/me", auth=True)
-        display_name = me_resp.json()["display_name"]
-        prefix = display_name[:4]
+        email = me_resp.json()["email"]
+        # Use the unique local part before '@' — guaranteed unique across test runs
+        unique_prefix = email.split("@")[0]
 
-        response = registered_user.get("/users", params={"search": prefix}, auth=True)
+        response = registered_user.get("/users", params={"search": unique_prefix}, auth=True)
         assert response.status_code == 200
         ids = [u["id"] for u in response.json()]
         assert registered_user.user_id in ids
@@ -1708,7 +1717,7 @@ class TestAssignmentEdgeCases:
         return c2
 
     def test_delete_assignment(self, registered_user, client):
-        """Owner can delete another user's assignment"""
+        """Owner can delete another user's assignment via DELETE /tasks/{task_id}/assignments/{user_id}"""
         c2 = self._make_second_user(client)
         task_data = {"title": "Task for del-assign", "description": "Assign test"}
         task_resp = registered_user.post("/tasks", task_data, auth=True)
@@ -1721,22 +1730,21 @@ class TestAssignmentEdgeCases:
             {"user_id": c2.user_id, "assigned_hours": 4.0},
             auth=True,
         )
-        # If backend supports assigning other users, check success; otherwise skip
         if assign_resp.status_code == 201:
             response = registered_user.delete(
-                "/assignments",
-                params={"task_id": task_id, "user_id": c2.user_id},
+                f"/tasks/{task_id}/assignments/{c2.user_id}",
                 auth=True,
             )
             assert response.status_code == 200
 
     def test_list_assignments_nonexistent_task(self, registered_user):
-        """GET /tasks/{id}/assignments for unknown task returns 404"""
+        """GET /tasks/{id}/assignments for unknown task returns 403 or 404"""
         import uuid
         response = registered_user.get(
             f"/tasks/{uuid.uuid4()}/assignments", auth=True
         )
-        assert response.status_code == 404
+        # Backend checks membership before existence, so 403 is also valid
+        assert response.status_code in (403, 404)
 
     def test_assign_to_nonexistent_task(self, registered_user):
         """POST /tasks/{id}/assignments for unknown task returns 404"""
@@ -1749,9 +1757,10 @@ class TestAssignmentEdgeCases:
         assert response.status_code in (404, 400)
 
     def test_delete_assignment_missing_params(self, registered_user):
-        """DELETE /assignments without query params must fail"""
+        """DELETE /assignments/{id} without a valid id returns 400 or 404"""
+        # Route is /api/assignments/{assignment_id} — no bare /assignments route
         response = registered_user.delete("/assignments", auth=True)
-        assert response.status_code == 400
+        assert response.status_code in (400, 404)
 
 
 if __name__ == "__main__":

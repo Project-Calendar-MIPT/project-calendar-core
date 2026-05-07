@@ -609,8 +609,16 @@ void UsersController::getUserProfile(
     callback(resp);
     return;
   } catch (const std::exception& e) {
-    LOG_ERROR << "getUserProfile failed for user " << userId << ": "
-              << e.what();
+    const std::string what = e.what() ? e.what() : std::string();
+    LOG_ERROR << "getUserProfile failed for user " << userId << ": " << what;
+    // PostgreSQL UUID parse errors → 400 Bad Request
+    if (what.find("uuid") != std::string::npos ||
+        what.find("invalid input syntax") != std::string::npos) {
+      auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Invalid user id format"));
+      resp->setStatusCode(k400BadRequest);
+      callback(resp);
+      return;
+    }
     auto resp =
         HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
     resp->setStatusCode(k500InternalServerError);

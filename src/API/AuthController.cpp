@@ -80,6 +80,16 @@ void AuthController::registerUser(
   const std::string email = j["email"].asString();
   const std::string password = j["password"].asString();
 
+  {
+    const auto atPos = email.find('@');
+    if (atPos == std::string::npos || atPos == 0 || atPos >= email.size() - 1) {
+      auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Invalid email format"));
+      resp->setStatusCode(k400BadRequest);
+      callback(resp);
+      return;
+    }
+  }
+
   const std::string name = j.isMember("name") ? j["name"].asString()
                            : j.isMember("first_name")
                                ? j["first_name"].asString()

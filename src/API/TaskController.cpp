@@ -271,6 +271,14 @@ void TaskController::createTask(
           : "";
   const bool payloadHasAnyDate = hasAnyDate(payloadStartDate, payloadDueDate);
 
+  if (!payloadStartDate.empty() && !payloadDueDate.empty() &&
+      payloadStartDate > payloadDueDate) {
+    auto resp = HttpResponse::newHttpJsonResponse(
+        Json::Value("start_date cannot be after due_date"));
+    resp->setStatusCode(k400BadRequest);
+    return callback(resp);
+  }
+
   if (payloadHasAnyDate && !assigneeUserId.has_value()) {
     auto resp = HttpResponse::newHttpJsonResponse(
         Json::Value("Tasks with start_date or due_date must have an assignee_user_id"));
@@ -329,6 +337,26 @@ void TaskController::createTask(
         j.isMember("priority") && j["priority"].isString() ? j["priority"].asString() : "normal";
     const std::string statusVal = shouldAutoPromoteToInProgress ? std::string("in_progress")
         : (j.isMember("status") && j["status"].isString() ? j["status"].asString() : std::string("open"));
+
+    // Validate enum values before hitting DB
+    {
+      static const std::set<std::string> kValidPriorities = {"low", "normal", "high", "critical"};
+      if (kValidPriorities.find(priority) == kValidPriorities.end()) {
+        auto resp = HttpResponse::newHttpJsonResponse(
+            Json::Value("Invalid priority. Must be: low, normal, high, critical"));
+        resp->setStatusCode(k400BadRequest);
+        return callback(resp);
+      }
+    }
+    {
+      static const std::set<std::string> kValidStatuses = {"open", "in_progress", "pending", "completed", "cancelled"};
+      if (kValidStatuses.find(statusVal) == kValidStatuses.end()) {
+        auto resp = HttpResponse::newHttpJsonResponse(
+            Json::Value("Invalid status. Must be: open, in_progress, pending, completed, cancelled"));
+        resp->setStatusCode(k400BadRequest);
+        return callback(resp);
+      }
+    }
     const double estimatedHours =
         (j.isMember("estimated_hours") && j["estimated_hours"].isNumeric())
         ? j["estimated_hours"].asDouble() : 0.0;
