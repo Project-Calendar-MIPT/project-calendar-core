@@ -38,32 +38,10 @@ jobs:
             sudo docker network create calendar-net 2>/dev/null || true
 
             # --- Kafka / MailHog / email-consumer (from repo) ---
-            cd /home/debian/calendar/core
+            cd /home/user/calendar/core
             git pull origin main
 
-            sudo docker compose -f docker-compose.kafka.yml build email-consumer
-            sudo docker compose -f docker-compose.kafka.yml up -d kafka mailhog
-
-            echo "Waiting for Kafka..."
-            timeout 90 bash -c \
-              'until sudo docker inspect --format "{{.State.Health.Status}}" project-calendar-kafka 2>/dev/null | grep -q healthy; do sleep 5; done'
-
-            sudo docker compose -f docker-compose.kafka.yml up -d email-consumer
-
-            # --- Backend (from server compose at /home/debian/calendar/) ---
-            cd /home/debian/calendar
-
-            # Inject KAFKA_BOOTSTRAP_SERVERS + calendar-net into backend via override file
-            # Include 'default' network so backend keeps DB access (override replaces, not merges, implicit default)
-            printf 'services:\n  backend:\n    environment:\n      KAFKA_BOOTSTRAP_SERVERS: kafka:9092\n      SKIP_EMAIL_VERIFICATION: "true"\n    networks:\n      - default\n      - calendar-net\nnetworks:\n  calendar-net:\n    external: true\n' | sudo tee docker-compose.override.yml > /dev/null
-
-            sudo docker compose build backend grafana
-            sudo docker compose up -d --no-deps backend grafana
-
-            # Apply any missing migrations (all use IF NOT EXISTS — safe to re-run)
-            echo "Applying migrations..."
-            for sql in /home/debian/calendar/core/migrations/*.sql; do
-              sudo docker compose exec -T db psql -U pc_admin -d project_calendar < "$sql" 2>&1 | grep -v "already exists" || true
-            done
+            cd ..
+            sudo docker compose up -d --build
 
             sudo docker image prune -f
