@@ -1893,7 +1893,7 @@ class TestNotificationSettings:
         }
         reg_resp = client.post("/auth/register", other_payload)
         assert reg_resp.status_code == 201
-        other_id = reg_resp.json()["user_id"]
+        other_id = reg_resp.json()["user"]["id"]
 
         response = registered_user.get(self._url(other_id), auth=True)
         assert response.status_code in (403, 404)
@@ -1915,7 +1915,7 @@ class TestNotificationSettings:
         }
         reg_resp = client.post("/auth/register", other_payload)
         assert reg_resp.status_code == 201
-        other_id = reg_resp.json()["user_id"]
+        other_id = reg_resp.json()["user"]["id"]
 
         payload = {
             "deadline_reminders_enabled": False,

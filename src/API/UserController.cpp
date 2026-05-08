@@ -492,7 +492,7 @@ void UsersController::getNotificationSettings(
     return callback(resp);
   }
   const std::string requesterId = attrsPtr->get<std::string>("user_id");
-  const std::string userId = getPathVariableCompat(req, "id");
+  const std::string userId = extractUserIdFromPath(req, "notification-settings");
   if (userId.empty()) {
     auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Missing user id"));
     resp->setStatusCode(k400BadRequest);
@@ -563,7 +563,7 @@ void UsersController::setNotificationSettings(
     return callback(resp);
   }
   const std::string requesterId = attrsPtr->get<std::string>("user_id");
-  const std::string userId = getPathVariableCompat(req, "id");
+  const std::string userId = extractUserIdFromPath(req, "notification-settings");
   if (userId.empty()) {
     auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Missing user id"));
     resp->setStatusCode(k400BadRequest);
