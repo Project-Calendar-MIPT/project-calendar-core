@@ -731,6 +731,7 @@ class TestTaskNotes:
             "description": "Task for notes test"
         }
         task_resp = registered_user.post("/tasks", task_data, auth=True)
+        assert task_resp.status_code == 201, task_resp.text
         task_id = task_resp.json()["id"]
 
         note_data = {"content": "This is a test note"}
@@ -751,6 +752,7 @@ class TestTaskNotes:
             "description": "Description"
         }
         task_resp = registered_user.post("/tasks", task_data, auth=True)
+        assert task_resp.status_code == 201, task_resp.text
         task_id = task_resp.json()["id"]
 
         note_data = {"content": ""}
@@ -766,6 +768,7 @@ class TestTaskNotes:
             "description": "Description"
         }
         task_resp = registered_user.post("/tasks", task_data, auth=True)
+        assert task_resp.status_code == 201, task_resp.text
         task_id = task_resp.json()["id"]
 
         for i in range(3):
@@ -792,6 +795,7 @@ class TestTaskNotes:
             "description": "Description"
         }
         task_resp = registered_user.post("/tasks", task_data, auth=True)
+        assert task_resp.status_code == 201, task_resp.text
         task_id = task_resp.json()["id"]
 
         note_resp = registered_user.post(
@@ -813,6 +817,7 @@ class TestTaskNotes:
             "description": "Description"
         }
         task_resp = registered_user.post("/tasks", task_data, auth=True)
+        assert task_resp.status_code == 201, task_resp.text
         task_id = task_resp.json()["id"]
 
         note_resp = registered_user.post(
