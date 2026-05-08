@@ -482,6 +482,183 @@ void UsersController::getUserWorkload(
   }
 }
 
+void UsersController::getNotificationSettings(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  auto attrsPtr = req->attributes();
+  if (!attrsPtr || !attrsPtr->find("user_id")) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
+    resp->setStatusCode(k401Unauthorized);
+    return callback(resp);
+  }
+  const std::string requesterId = attrsPtr->get<std::string>("user_id");
+  const std::string userId = getPathVariableCompat(req, "id");
+  if (userId.empty()) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Missing user id"));
+    resp->setStatusCode(k400BadRequest);
+    return callback(resp);
+  }
+  if (requesterId != userId) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Forbidden"));
+    resp->setStatusCode(k403Forbidden);
+    return callback(resp);
+  }
+
+  auto dbClient = app().getDbClient();
+  try {
+    auto res = dbClient->execSqlSync(
+        "SELECT deadline_reminders_enabled, reminder_days_before, "
+        "reminder_hours_before "
+        "FROM user_notification_settings WHERE user_id = $1",
+        userId);
+
+    Json::Value out;
+    if (res.empty()) {
+      out["deadline_reminders_enabled"] = true;
+      Json::Value days(Json::arrayValue);
+      days.append(1); days.append(3); days.append(7);
+      out["reminder_days_before"] = days;
+      Json::Value hours(Json::arrayValue);
+      out["reminder_hours_before"] = hours;
+    } else {
+      out["deadline_reminders_enabled"] = res[0]["deadline_reminders_enabled"].as<bool>();
+      auto parseArr = [](const std::string& raw) {
+        Json::Value arr(Json::arrayValue);
+        std::string s = raw;
+        if (!s.empty() && s.front() == '{') s = s.substr(1);
+        if (!s.empty() && s.back() == '}') s.pop_back();
+        std::stringstream ss(s);
+        std::string item;
+        while (std::getline(ss, item, ',')) {
+          try { arr.append(std::stoi(item)); } catch (...) {}
+        }
+        return arr;
+      };
+      out["reminder_days_before"] =
+          parseArr(res[0]["reminder_days_before"].as<std::string>());
+      out["reminder_hours_before"] =
+          res[0]["reminder_hours_before"].isNull()
+              ? Json::Value(Json::arrayValue)
+              : parseArr(res[0]["reminder_hours_before"].as<std::string>());
+    }
+
+    auto resp = HttpResponse::newHttpJsonResponse(out);
+    resp->setStatusCode(k200OK);
+    return callback(resp);
+  } catch (const std::exception& e) {
+    LOG_ERROR << "getNotificationSettings failed: " << e.what();
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
+    resp->setStatusCode(k500InternalServerError);
+    return callback(resp);
+  }
+}
+
+void UsersController::setNotificationSettings(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  auto attrsPtr = req->attributes();
+  if (!attrsPtr || !attrsPtr->find("user_id")) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
+    resp->setStatusCode(k401Unauthorized);
+    return callback(resp);
+  }
+  const std::string requesterId = attrsPtr->get<std::string>("user_id");
+  const std::string userId = getPathVariableCompat(req, "id");
+  if (userId.empty()) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Missing user id"));
+    resp->setStatusCode(k400BadRequest);
+    return callback(resp);
+  }
+  if (requesterId != userId) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Forbidden"));
+    resp->setStatusCode(k403Forbidden);
+    return callback(resp);
+  }
+
+  auto pj = req->getJsonObject();
+  if (!pj || !pj->isObject()) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Invalid JSON"));
+    resp->setStatusCode(k400BadRequest);
+    return callback(resp);
+  }
+  const Json::Value& j = *pj;
+
+  if (!j.isMember("deadline_reminders_enabled") || !j["deadline_reminders_enabled"].isBool()) {
+    auto resp = HttpResponse::newHttpJsonResponse(
+        Json::Value("deadline_reminders_enabled (bool) is required"));
+    resp->setStatusCode(k400BadRequest);
+    return callback(resp);
+  }
+
+  const bool enabled = j["deadline_reminders_enabled"].asBool();
+
+  auto buildPgArray = [&](const Json::Value& arr, int maxVal) -> std::pair<bool, std::string> {
+    std::string pg = "{";
+    for (Json::UInt i = 0; i < arr.size(); ++i) {
+      if (!arr[i].isInt()) return {false, ""};
+      int v = arr[i].asInt();
+      if (v < 1 || v > maxVal) return {false, ""};
+      if (i > 0) pg += ",";
+      pg += std::to_string(v);
+    }
+    pg += "}";
+    return {true, pg};
+  };
+
+  std::string daysPg = "{}";
+  if (j.isMember("reminder_days_before") && j["reminder_days_before"].isArray()) {
+    auto [ok, pg] = buildPgArray(j["reminder_days_before"], 365);
+    if (!ok) {
+      auto resp = HttpResponse::newHttpJsonResponse(
+          Json::Value("reminder_days_before must be integers 1-365"));
+      resp->setStatusCode(k400BadRequest);
+      return callback(resp);
+    }
+    daysPg = pg;
+  }
+
+  std::string hoursPg = "{}";
+  if (j.isMember("reminder_hours_before") && j["reminder_hours_before"].isArray()) {
+    auto [ok, pg] = buildPgArray(j["reminder_hours_before"], 72);
+    if (!ok) {
+      auto resp = HttpResponse::newHttpJsonResponse(
+          Json::Value("reminder_hours_before must be integers 1-72"));
+      resp->setStatusCode(k400BadRequest);
+      return callback(resp);
+    }
+    hoursPg = pg;
+  }
+
+  auto dbClient = app().getDbClient();
+  try {
+    dbClient->execSqlSync(
+        "INSERT INTO user_notification_settings "
+        "(user_id, deadline_reminders_enabled, reminder_days_before, reminder_hours_before, updated_at) "
+        "VALUES ($1::uuid, $2, $3::integer[], $4::integer[], NOW()) "
+        "ON CONFLICT (user_id) DO UPDATE SET "
+        "  deadline_reminders_enabled = EXCLUDED.deadline_reminders_enabled, "
+        "  reminder_days_before = EXCLUDED.reminder_days_before, "
+        "  reminder_hours_before = EXCLUDED.reminder_hours_before, "
+        "  updated_at = NOW()",
+        userId, enabled, daysPg, hoursPg);
+
+    Json::Value out;
+    out["deadline_reminders_enabled"] = enabled;
+    out["reminder_days_before"] =
+        j.isMember("reminder_days_before") ? j["reminder_days_before"] : Json::Value(Json::arrayValue);
+    out["reminder_hours_before"] =
+        j.isMember("reminder_hours_before") ? j["reminder_hours_before"] : Json::Value(Json::arrayValue);
+    auto resp = HttpResponse::newHttpJsonResponse(out);
+    resp->setStatusCode(k200OK);
+    return callback(resp);
+  } catch (const std::exception& e) {
+    LOG_ERROR << "setNotificationSettings failed: " << e.what();
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
+    resp->setStatusCode(k500InternalServerError);
+    return callback(resp);
+  }
+}
+
 void UsersController::searchUsers(
     const HttpRequestPtr& req,
     std::function<void(const HttpResponsePtr&)>&& callback) {

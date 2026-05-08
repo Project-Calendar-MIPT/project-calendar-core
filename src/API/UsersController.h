@@ -19,6 +19,13 @@ class UsersController : public drogon::HttpController<UsersController> {
 
   ADD_METHOD_TO(UsersController::getUserWorkload, "/api/users/{id}/workload",
                 Get, "AuthFilter");
+
+  ADD_METHOD_TO(UsersController::getNotificationSettings,
+                "/api/users/{id}/notification-settings", Get, "AuthFilter");
+
+  ADD_METHOD_TO(UsersController::setNotificationSettings,
+                "/api/users/{id}/notification-settings", Put, "AuthFilter");
+
   METHOD_LIST_END
 
   void setWorkSchedule(const HttpRequestPtr& req,
@@ -35,4 +42,10 @@ class UsersController : public drogon::HttpController<UsersController> {
 
   void getUserWorkload(const HttpRequestPtr& req,
                        std::function<void(const HttpResponsePtr&)>&& callback);
+
+  void getNotificationSettings(const HttpRequestPtr& req,
+                                std::function<void(const HttpResponsePtr&)>&& callback);
+
+  void setNotificationSettings(const HttpRequestPtr& req,
+                                std::function<void(const HttpResponsePtr&)>&& callback);
 };

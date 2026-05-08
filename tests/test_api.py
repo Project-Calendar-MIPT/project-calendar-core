@@ -1763,5 +1763,168 @@ class TestAssignmentEdgeCases:
         assert response.status_code in (400, 404)
 
 
+class TestNotificationSettings:
+    """GET/PUT /users/{id}/notification-settings"""
+
+    def _url(self, user_id: str) -> str:
+        return f"/users/{user_id}/notification-settings"
+
+    def test_get_returns_defaults(self, registered_user):
+        """Fresh account: GET returns defaults (enabled=true, days={1,3,7})"""
+        response = registered_user.get(
+            self._url(registered_user.user_id), auth=True
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert "deadline_reminders_enabled" in data
+        assert "reminder_days_before" in data
+        assert "reminder_hours_before" in data
+        assert isinstance(data["reminder_days_before"], list)
+        assert isinstance(data["reminder_hours_before"], list)
+
+    def test_put_saves_settings(self, registered_user):
+        """PUT persists all three fields"""
+        payload = {
+            "deadline_reminders_enabled": True,
+            "reminder_days_before": [1, 7],
+            "reminder_hours_before": [2, 6],
+        }
+        response = registered_user.put(
+            self._url(registered_user.user_id), payload, auth=True
+        )
+        assert response.status_code in (200, 204), response.text
+
+    def test_get_after_put_returns_saved(self, registered_user):
+        """GET reflects values saved via PUT"""
+        payload = {
+            "deadline_reminders_enabled": False,
+            "reminder_days_before": [3, 14],
+            "reminder_hours_before": [1],
+        }
+        registered_user.put(
+            self._url(registered_user.user_id), payload, auth=True
+        )
+        response = registered_user.get(
+            self._url(registered_user.user_id), auth=True
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["deadline_reminders_enabled"] is False
+        assert sorted(data["reminder_days_before"]) == [3, 14]
+        assert data["reminder_hours_before"] == [1]
+
+    def test_put_disable_reminders(self, registered_user):
+        """PUT with enabled=false must be stored and returned correctly"""
+        payload = {
+            "deadline_reminders_enabled": False,
+            "reminder_days_before": [],
+            "reminder_hours_before": [],
+        }
+        put_resp = registered_user.put(
+            self._url(registered_user.user_id), payload, auth=True
+        )
+        assert put_resp.status_code in (200, 204), put_resp.text
+
+        get_resp = registered_user.get(
+            self._url(registered_user.user_id), auth=True
+        )
+        assert get_resp.status_code == 200
+        assert get_resp.json()["deadline_reminders_enabled"] is False
+
+    def test_put_empty_arrays(self, registered_user):
+        """PUT with empty arrays is valid"""
+        payload = {
+            "deadline_reminders_enabled": True,
+            "reminder_days_before": [],
+            "reminder_hours_before": [],
+        }
+        response = registered_user.put(
+            self._url(registered_user.user_id), payload, auth=True
+        )
+        assert response.status_code in (200, 204), response.text
+
+    def test_put_idempotent(self, registered_user):
+        """Calling PUT twice with same data must succeed both times"""
+        payload = {
+            "deadline_reminders_enabled": True,
+            "reminder_days_before": [1, 3],
+            "reminder_hours_before": [6],
+        }
+        r1 = registered_user.put(
+            self._url(registered_user.user_id), payload, auth=True
+        )
+        r2 = registered_user.put(
+            self._url(registered_user.user_id), payload, auth=True
+        )
+        assert r1.status_code in (200, 204), r1.text
+        assert r2.status_code in (200, 204), r2.text
+
+    def test_get_unauthenticated(self, client):
+        """GET without token must return 401"""
+        import uuid
+        response = client.get(self._url(str(uuid.uuid4())), auth=False)
+        assert response.status_code == 401
+
+    def test_put_unauthenticated(self, client):
+        """PUT without token must return 401"""
+        import uuid
+        payload = {
+            "deadline_reminders_enabled": True,
+            "reminder_days_before": [1],
+            "reminder_hours_before": [],
+        }
+        response = client.put(self._url(str(uuid.uuid4())), payload, auth=False)
+        assert response.status_code == 401
+
+    def test_get_other_user_forbidden(self, registered_user, client):
+        """User A cannot read User B's notification settings"""
+        import uuid
+        other_email = f"other_{uuid.uuid4().hex[:8]}@example.com"
+        other_payload = {
+            "email": other_email,
+            "password": "Pass1234!",
+            "username": f"other_{uuid.uuid4().hex[:6]}",
+            "last_name": "Other",
+            "first_name": "User",
+            "timezone": "UTC",
+            "contacts_visible": False,
+            "stack": [],
+            "work_schedule": [],
+        }
+        reg_resp = client.post("/auth/register", other_payload)
+        assert reg_resp.status_code == 201
+        other_id = reg_resp.json()["user_id"]
+
+        response = registered_user.get(self._url(other_id), auth=True)
+        assert response.status_code in (403, 404)
+
+    def test_put_other_user_forbidden(self, registered_user, client):
+        """User A cannot overwrite User B's notification settings"""
+        import uuid
+        other_email = f"other2_{uuid.uuid4().hex[:8]}@example.com"
+        other_payload = {
+            "email": other_email,
+            "password": "Pass1234!",
+            "username": f"other2_{uuid.uuid4().hex[:6]}",
+            "last_name": "Other",
+            "first_name": "User",
+            "timezone": "UTC",
+            "contacts_visible": False,
+            "stack": [],
+            "work_schedule": [],
+        }
+        reg_resp = client.post("/auth/register", other_payload)
+        assert reg_resp.status_code == 201
+        other_id = reg_resp.json()["user_id"]
+
+        payload = {
+            "deadline_reminders_enabled": False,
+            "reminder_days_before": [],
+            "reminder_hours_before": [],
+        }
+        response = registered_user.put(self._url(other_id), payload, auth=True)
+        assert response.status_code in (403, 404)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])
