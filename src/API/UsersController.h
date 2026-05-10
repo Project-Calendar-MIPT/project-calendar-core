@@ -11,7 +11,7 @@ class UsersController : public drogon::HttpController<UsersController> {
                 "/api/users/{id}/work-schedule", Post, "AuthFilter");
 
   ADD_METHOD_TO(UsersController::getWorkSchedule,
-                "/api/users/{id}/work-schedule", Get);
+                "/api/users/{id}/work-schedule", Get, "AuthFilter");
 
   ADD_METHOD_TO(UsersController::searchUsers, "/api/users", Get);
 

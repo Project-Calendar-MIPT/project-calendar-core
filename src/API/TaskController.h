@@ -11,6 +11,9 @@ class TaskController : public drogon::HttpController<TaskController> {
 
   ADD_METHOD_TO(TaskController::getTasks, "/api/tasks", Get, "AuthFilter");
 
+  ADD_METHOD_TO(TaskController::getTask, "/api/tasks/{task_id}", Get,
+                "AuthFilter");
+
   ADD_METHOD_TO(TaskController::createAssignment,
                 "/api/tasks/{task_id}/assignments", Post, "AuthFilter");
 
@@ -57,6 +60,9 @@ class TaskController : public drogon::HttpController<TaskController> {
 
   void getTasks(const HttpRequestPtr& req,
                 std::function<void(const HttpResponsePtr&)>&& callback);
+
+  void getTask(const HttpRequestPtr& req,
+               std::function<void(const HttpResponsePtr&)>&& callback);
 
   void updateTask(const HttpRequestPtr& req,
                   std::function<void(const HttpResponsePtr&)>&& callback);
