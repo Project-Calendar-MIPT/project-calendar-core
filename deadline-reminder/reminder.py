@@ -110,32 +110,6 @@ def check_and_send():
 
         # --- Day-level reminders ---
         cur.execute("""
-            SELECT
-                u.id         AS user_id,
-                u.email,
-                u.display_name,
-                t.id         AS task_id,
-                t.title      AS task_title,
-                t.due_date,
-                unnest(ns.reminder_days_before) AS days_before
-            FROM task t
-            JOIN task_assignment ta ON ta.task_id = t.id
-            JOIN app_user u ON u.id = ta.user_id
-            JOIN user_notification_settings ns ON ns.user_id = u.id
-            WHERE ns.deadline_reminders_enabled = TRUE
-              AND t.due_date IS NOT NULL
-              AND t.status NOT IN ('completed', 'cancelled')
-              AND t.due_date = CURRENT_DATE + (unnest(ns.reminder_days_before) || ' days')::interval
-              AND NOT EXISTS (
-                  SELECT 1 FROM deadline_reminder_sent drs
-                  WHERE drs.user_id = u.id
-                    AND drs.task_id = t.id
-                    AND drs.days_before = unnest(ns.reminder_days_before)
-                    AND drs.sent_at::date = CURRENT_DATE
-              )
-        """)
-        # The above query has a subtle issue with unnest in WHERE — use CTE instead
-        cur.execute("""
             WITH candidates AS (
                 SELECT
                     u.id           AS user_id,

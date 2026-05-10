@@ -657,6 +657,162 @@ void TaskController::getTasks(
   }
 }
 
+void TaskController::getTask(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  const std::string taskId = getPathVariableCompat(req, "task_id");
+  if (taskId.empty()) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Missing task id"));
+    resp->setStatusCode(k400BadRequest);
+    return callback(resp);
+  }
+
+  auto attrsPtr = req->attributes();
+  if (!attrsPtr || !attrsPtr->find("user_id")) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
+    resp->setStatusCode(k401Unauthorized);
+    return callback(resp);
+  }
+  const std::string userId = attrsPtr->get<std::string>("user_id");
+  if (userId.empty()) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
+    resp->setStatusCode(k401Unauthorized);
+    return callback(resp);
+  }
+
+  auto dbClient = app().getDbClient();
+  try {
+    // Check task exists
+    auto exists = dbClient->execSqlSync(
+        "SELECT id, created_by FROM \"task\" WHERE id = $1 LIMIT 1", taskId);
+    if (exists.empty()) {
+      auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Task not found"));
+      resp->setStatusCode(k404NotFound);
+      return callback(resp);
+    }
+
+    // Fetch task with user's assignment info (user must be assignee or creator)
+    auto tasksRes = dbClient->execSqlSync(
+        R"sql(
+        SELECT t.id AS id,
+               t.parent_task_id AS parent_task_id,
+               t.title AS title,
+               t.description AS description,
+               t.priority AS priority,
+               t.status AS status,
+               t.estimated_hours AS estimated_hours,
+               t.start_date::text AS start_date,
+               t.due_date::text AS due_date,
+               t.project_root_id AS project_root_id,
+               t.created_by AS created_by,
+               t.created_at::text AS created_at,
+               t.updated_at::text AS updated_at,
+               ta.assigned_hours AS assigned_hours,
+               tr.role AS role
+        FROM "task" t
+        LEFT JOIN "task_assignment" ta ON ta.task_id = t.id AND ta.user_id = $2::uuid
+        LEFT JOIN "task_role_assignment" tr ON tr.task_id = t.id AND tr.user_id = $2::uuid
+        WHERE t.id = $1
+          AND (ta.user_id IS NOT NULL OR t.created_by = $2::uuid)
+        LIMIT 1
+        )sql",
+        taskId, userId);
+
+    if (tasksRes.empty()) {
+      auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Forbidden"));
+      resp->setStatusCode(k403Forbidden);
+      return callback(resp);
+    }
+
+    const auto& row = tasksRes[0];
+    Json::Value item(Json::objectValue);
+    item["id"] = row["id"].as<std::string>();
+    item["parent_task_id"] = row["parent_task_id"].isNull()
+                                 ? Json::Value()
+                                 : Json::Value(row["parent_task_id"].as<std::string>());
+    item["title"] = row["title"].isNull() ? Json::Value()
+                                          : Json::Value(row["title"].as<std::string>());
+    item["description"] = row["description"].isNull()
+                              ? Json::Value()
+                              : Json::Value(row["description"].as<std::string>());
+    item["priority"] = row["priority"].isNull()
+                           ? Json::Value()
+                           : Json::Value(row["priority"].as<std::string>());
+    item["status"] = row["status"].isNull() ? Json::Value()
+                                            : Json::Value(row["status"].as<std::string>());
+    item["estimated_hours"] = row["estimated_hours"].isNull()
+                                  ? Json::Value()
+                                  : Json::Value(row["estimated_hours"].as<std::string>());
+    item["start_date"] = row["start_date"].isNull()
+                             ? Json::Value()
+                             : Json::Value(row["start_date"].as<std::string>());
+    item["due_date"] = row["due_date"].isNull()
+                           ? Json::Value()
+                           : Json::Value(row["due_date"].as<std::string>());
+    item["has_time"] = !row["start_date"].isNull() || !row["due_date"].isNull();
+    item["project_root_id"] = row["project_root_id"].isNull()
+                                  ? Json::Value()
+                                  : Json::Value(row["project_root_id"].as<std::string>());
+    item["created_by"] = row["created_by"].isNull()
+                             ? Json::Value()
+                             : Json::Value(row["created_by"].as<std::string>());
+    item["created_at"] = row["created_at"].isNull()
+                             ? Json::Value()
+                             : Json::Value(row["created_at"].as<std::string>());
+    item["updated_at"] = row["updated_at"].isNull()
+                             ? Json::Value()
+                             : Json::Value(row["updated_at"].as<std::string>());
+    item["assigned_hours"] = row["assigned_hours"].isNull()
+                                 ? Json::Value()
+                                 : Json::Value(row["assigned_hours"].as<std::string>());
+    item["role"] = row["role"].isNull() ? Json::Value()
+                                        : Json::Value(row["role"].as<std::string>());
+
+    auto schedules = dbClient->execSqlSync(
+        R"sql(
+        SELECT ts.id::text AS id,
+               ts.task_id::text AS task_id,
+               ts.start_ts::date::text AS date,
+               ts.start_ts::time::text AS start_time,
+               ts.end_ts::time::text AS end_time,
+               ts.hours
+        FROM "task_schedule" ts
+        WHERE ts.task_id = $1
+        ORDER BY ts.start_ts
+        )sql",
+        taskId);
+    Json::Value scheduleArr(Json::arrayValue);
+    for (const auto& srow : schedules) {
+      Json::Value s(Json::objectValue);
+      s["id"] = srow["id"].isNull() ? Json::Value()
+                                    : Json::Value(srow["id"].as<std::string>());
+      s["date"] = srow["date"].isNull() ? Json::Value()
+                                        : Json::Value(srow["date"].as<std::string>());
+      s["start_time"] = srow["start_time"].isNull()
+                            ? Json::Value()
+                            : Json::Value(srow["start_time"].as<std::string>());
+      s["end_time"] = srow["end_time"].isNull()
+                          ? Json::Value()
+                          : Json::Value(srow["end_time"].as<std::string>());
+      s["hours"] = srow["hours"].isNull() ? Json::Value()
+                                          : Json::Value(srow["hours"].as<std::string>());
+      scheduleArr.append(s);
+    }
+    item["schedule"] = scheduleArr;
+
+    auto resp = HttpResponse::newHttpJsonResponse(item);
+    resp->setStatusCode(k200OK);
+    return callback(resp);
+
+  } catch (const std::exception& e) {
+    LOG_ERROR << "getTask failed for task " << taskId << ": " << e.what();
+    auto resp =
+        HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
+    resp->setStatusCode(k500InternalServerError);
+    return callback(resp);
+  }
+}
+
 void TaskController::calculateAvailability(
     const HttpRequestPtr& req,
     std::function<void(const HttpResponsePtr&)>&& callback) {
@@ -1154,7 +1310,8 @@ void TaskController::updateTask(
 
     try {
       task.updateByJson(j);
-    } catch (...) {
+    } catch (const std::exception& e) {
+      LOG_WARN << "updateByJson partial failure (fields set manually): " << e.what();
     }
 
     // Explicitly handle nullable fields for full field editing
