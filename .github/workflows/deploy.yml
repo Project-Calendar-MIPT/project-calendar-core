@@ -133,6 +133,6 @@ jobs:
               --project-name calendar \
               -f docker-compose.yml \
               -f monitoring/docker-compose.monitoring.yml \
-              up -d --build --remove-orphans
+              up -d --build
 
             sudo docker image prune -f
