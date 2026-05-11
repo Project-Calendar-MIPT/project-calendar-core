@@ -121,7 +121,7 @@ jobs:
             cd /home/user/calendar
             git submodule update --remote --recursive --init
 
-            cd /home/user/calendar/
+            cd /home/user/calendar/core
             sudo docker compose \
               -f docker-compose.yml \
               -f monitoring/docker-compose.monitoring.yml \
