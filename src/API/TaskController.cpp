@@ -430,6 +430,27 @@ void TaskController::createTask(
       }
     }
 
+    // Populate task_schedule for all assigned users if task has dates
+    if (!startDateStr.empty() && !dueDateStr.empty()) {
+      const double hours = estimatedHours;
+      // Owner entry
+      trans->execSqlSync(
+          "INSERT INTO \"task_schedule\" "
+          "(task_id, user_id, start_ts, end_ts, hours, auto_placed) "
+          "VALUES ($1::uuid, $2::uuid, $3::timestamptz, "
+          "($4::date + INTERVAL '1 day' - INTERVAL '1 second')::timestamptz, $5, TRUE)",
+          taskId, userId, startDateStr, dueDateStr, hours);
+      // Extra assignee (if different from owner)
+      if (assigneeUserId.has_value() && *assigneeUserId != userId) {
+        trans->execSqlSync(
+            "INSERT INTO \"task_schedule\" "
+            "(task_id, user_id, start_ts, end_ts, hours, auto_placed) "
+            "VALUES ($1::uuid, $2::uuid, $3::timestamptz, "
+            "($4::date + INTERVAL '1 day' - INTERVAL '1 second')::timestamptz, $5, TRUE)",
+            taskId, *assigneeUserId, startDateStr, dueDateStr, hours);
+      }
+    }
+
     // Fetch created task INSIDE the transaction before commit (guaranteed visibility)
     auto finalRes = trans->execSqlSync(
         R"sql(
@@ -663,6 +684,13 @@ void TaskController::getTask(
   const std::string taskId = getPathVariableCompat(req, "task_id");
   if (taskId.empty()) {
     auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Missing task id"));
+    resp->setStatusCode(k400BadRequest);
+    return callback(resp);
+  }
+  // Reject obviously malformed IDs before hitting the DB (avoids 500 on bad UUID cast)
+  if (taskId.size() != 36 || taskId[8] != '-' || taskId[13] != '-' ||
+      taskId[18] != '-' || taskId[23] != '-') {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Invalid task id format"));
     resp->setStatusCode(k400BadRequest);
     return callback(resp);
   }
@@ -1410,6 +1438,51 @@ void TaskController::updateTask(
       }
     }
 
+    // Refresh task_schedule when dates, hours, or assignee changed
+    bool datesOrHoursChanged = j.isMember("start_date") || j.isMember("due_date") ||
+                               j.isMember("estimated_hours");
+    if (datesOrHoursChanged || assigneeUserId.has_value()) {
+      try {
+        if (!effectiveStartDate.empty() && !effectiveDueDate.empty()) {
+          double estHours = 0.0;
+          if (!res[0]["estimated_hours"].isNull()) {
+            estHours = res[0]["estimated_hours"].as<double>();
+          }
+          if (j.isMember("estimated_hours") && j["estimated_hours"].isNumeric()) {
+            estHours = j["estimated_hours"].asDouble();
+          }
+
+          // Delete stale entries and re-insert for all currently assigned users
+          dbClient->execSqlSync(
+              "DELETE FROM \"task_schedule\" WHERE task_id = $1", taskId);
+
+          auto assignees = dbClient->execSqlSync(
+              "SELECT user_id, assigned_hours FROM \"task_assignment\" "
+              "WHERE task_id = $1",
+              taskId);
+          for (size_t i = 0; i < assignees.size(); ++i) {
+            const std::string uid = assignees[i]["user_id"].as<std::string>();
+            double hours = estHours;
+            if (!assignees[i]["assigned_hours"].isNull()) {
+              hours = assignees[i]["assigned_hours"].as<double>();
+            }
+            dbClient->execSqlSync(
+                "INSERT INTO \"task_schedule\" "
+                "(task_id, user_id, start_ts, end_ts, hours, auto_placed) "
+                "VALUES ($1::uuid, $2::uuid, $3::timestamptz, "
+                "($4::date + INTERVAL '1 day' - INTERVAL '1 second')::timestamptz, $5, TRUE)",
+                taskId, uid, effectiveStartDate, effectiveDueDate, hours);
+          }
+        } else {
+          // Dates removed — clear schedule
+          dbClient->execSqlSync(
+              "DELETE FROM \"task_schedule\" WHERE task_id = $1", taskId);
+        }
+      } catch (const std::exception& schedEx) {
+        LOG_WARN << "updateTask: failed to refresh task_schedule: " << schedEx.what();
+      }
+    }
+
     auto finalRes = dbClient->execSqlSync(
         R"sql(
         SELECT id, parent_task_id, title, description, priority, status, estimated_hours,
@@ -1760,6 +1833,76 @@ void TaskController::createAssignment(
 
     trans.reset();
 
+    // Populate task_schedule so availability calculations work cross-project
+    try {
+      auto taskDates = dbClient->execSqlSync(
+          "SELECT start_date::text AS start_date, due_date::text AS due_date, "
+          "estimated_hours FROM \"task\" WHERE id = $1 LIMIT 1",
+          taskId);
+      if (!taskDates.empty() && !taskDates[0]["start_date"].isNull() &&
+          !taskDates[0]["due_date"].isNull()) {
+        double hours = 0.0;
+        if (assignedHours) {
+          hours = *assignedHours;
+        } else if (!taskDates[0]["estimated_hours"].isNull()) {
+          hours = taskDates[0]["estimated_hours"].as<double>();
+        }
+        const std::string taskStart = taskDates[0]["start_date"].as<std::string>();
+        const std::string taskDue   = taskDates[0]["due_date"].as<std::string>();
+
+        // Detect cross-project schedule conflicts for this user
+        auto conflicts = dbClient->execSqlSync(
+            R"sql(
+            SELECT ts.task_id::text AS conflict_task_id,
+                   t.title          AS conflict_title,
+                   ts.start_ts::text AS conflict_start,
+                   ts.end_ts::text   AS conflict_end,
+                   ts.hours          AS conflict_hours
+            FROM task_schedule ts
+            JOIN task t ON t.id = ts.task_id
+            WHERE ts.user_id = $1::uuid
+              AND ts.task_id != $2::uuid
+              AND ts.start_ts < ($4::date + INTERVAL '1 day')::timestamptz
+              AND ts.end_ts   > $3::timestamptz
+            LIMIT 10
+            )sql",
+            assUserId, taskId, taskStart, taskDue);
+
+        dbClient->execSqlSync(
+            "INSERT INTO \"task_schedule\" "
+            "(task_id, user_id, start_ts, end_ts, hours, auto_placed) "
+            "VALUES ($1::uuid, $2::uuid, $3::timestamptz, "
+            "($4::date + INTERVAL '1 day' - INTERVAL '1 second')::timestamptz, $5, TRUE)",
+            taskId, assUserId, taskStart, taskDue, hours);
+
+        if (!conflicts.empty()) {
+          Json::Value conflictsArr(Json::arrayValue);
+          for (size_t ci = 0; ci < conflicts.size(); ++ci) {
+            Json::Value c(Json::objectValue);
+            c["task_id"] = conflicts[ci]["conflict_task_id"].as<std::string>();
+            c["title"]   = conflicts[ci]["conflict_title"].as<std::string>();
+            c["start"]   = conflicts[ci]["conflict_start"].as<std::string>();
+            c["end"]     = conflicts[ci]["conflict_end"].as<std::string>();
+            c["hours"]   = conflicts[ci]["conflict_hours"].as<double>();
+            conflictsArr.append(c);
+          }
+          Json::Value out(Json::objectValue);
+          out["task_id"] = taskId;
+          out["user_id"] = assUserId;
+          out["role"]    = role;
+          out["assigned_hours"] =
+              assignedHours ? Json::Value(*assignedHours) : Json::Value();
+          out["assigned_at"] = ::trantor::Date::now().toDbStringLocal();
+          out["scheduling_conflicts"] = conflictsArr;
+          auto resp = HttpResponse::newHttpJsonResponse(out);
+          resp->setStatusCode(k201Created);
+          return callback(resp);
+        }
+      }
+    } catch (const std::exception& schedEx) {
+      LOG_WARN << "createAssignment: failed to insert task_schedule: " << schedEx.what();
+    }
+
     Json::Value out(Json::objectValue);
     out["task_id"] = taskId;
     out["user_id"] = assUserId;
@@ -1945,15 +2088,16 @@ void TaskController::deleteAssignment(
     }
     const std::string assUserId = userRes[0]["user_id"].as<std::string>();
 
-    auto trans = dbClient->newTransaction();
-    trans->execSqlSync(
+    dbClient->execSqlSync(
+        "DELETE FROM \"task_schedule\" WHERE task_id = $1 AND user_id = $2",
+        taskId, assUserId);
+    dbClient->execSqlSync(
         "DELETE FROM \"task_role_assignment\" WHERE task_id = $1 AND user_id = "
         "$2",
         taskId, assUserId);
-    trans->execSqlSync(
+    dbClient->execSqlSync(
         "DELETE FROM \"task_assignment\" WHERE task_id = $1 AND user_id = $2",
         taskId, assUserId);
-    trans.reset();
 
     auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Deleted"));
     resp->setStatusCode(k200OK);
@@ -2296,6 +2440,21 @@ void TaskController::removeAssignmentByUser(
   std::string taskId = getPathVariableCompat(req, "task_id");
   std::string targetUserId = getPathVariableCompat(req, "user_id");
 
+  // getPathVariableCompat falls back to the last path segment for both params.
+  // For /api/tasks/{task_id}/assignments/{user_id} that gives the user_id for
+  // both. Extract task_id from the path directly when it looks wrong.
+  {
+    const std::string path = req->path();
+    const size_t tasksPos = path.find("/tasks/");
+    if (tasksPos != std::string::npos) {
+      const size_t uuidStart = tasksPos + 7;
+      const size_t uuidEnd   = path.find("/", uuidStart);
+      if (uuidEnd != std::string::npos) {
+        taskId = path.substr(uuidStart, uuidEnd - uuidStart);
+      }
+    }
+  }
+
   if (taskId.empty() || targetUserId.empty()) {
     auto resp = HttpResponse::newHttpJsonResponse(
         Json::Value("Missing task_id or user_id"));
@@ -2313,18 +2472,18 @@ void TaskController::removeAssignmentByUser(
 
   auto dbClient = app().getDbClient();
   try {
-    auto trans = dbClient->newTransaction();
+    dbClient->execSqlSync(
+        "DELETE FROM \"task_schedule\" WHERE task_id = $1 AND user_id = $2",
+        taskId, targetUserId);
 
-    trans->execSqlSync(
+    dbClient->execSqlSync(
         "DELETE FROM \"task_role_assignment\" WHERE task_id = $1 AND user_id = "
         "$2",
         taskId, targetUserId);
 
-    trans->execSqlSync(
+    dbClient->execSqlSync(
         "DELETE FROM \"task_assignment\" WHERE task_id = $1 AND user_id = $2",
         taskId, targetUserId);
-
-    trans.reset();
 
     auto resp =
         HttpResponse::newHttpJsonResponse(Json::Value("Assignment removed"));
