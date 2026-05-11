@@ -6,6 +6,7 @@
 #include <string>
 
 #include "API/KafkaProducer.h"
+#include "API/Metrics.h"
 
 int main() {
   trantor::Logger::setLogLevel(trantor::Logger::kInfo);
@@ -67,6 +68,19 @@ int main() {
     const char* brokers = std::getenv("KAFKA_BOOTSTRAP_SERVERS");
     KafkaProducer::instance().init(brokers ? brokers : "");
   }
+
+  drogon::app().registerPreHandlingAdvice([](const drogon::HttpRequestPtr& req) {
+    Metrics::instance().incRequest();
+  });
+
+  drogon::app().registerPostHandlingAdvice(
+      [](const drogon::HttpRequestPtr& req, const drogon::HttpResponsePtr& resp) {
+        int code = resp->getStatusCode();
+        if (code >= 500)
+          Metrics::instance().incError5xx();
+        else if (code >= 400)
+          Metrics::instance().incError4xx();
+      });
 
   LOG_INFO << "Server starting on http://0.0.0.0:8080";
 
