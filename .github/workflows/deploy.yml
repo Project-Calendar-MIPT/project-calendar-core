@@ -123,6 +123,7 @@ jobs:
 
             cd /home/user/calendar/core
             sudo docker compose \
+              --project-name calendar \
               -f docker-compose.yml \
               -f monitoring/docker-compose.monitoring.yml \
               up -d --build
