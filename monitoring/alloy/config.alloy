@@ -1,0 +1,57 @@
+// ── Log collection ───────────────────────────────────────────────────────────
+
+// Watch all .log files written by AsyncFileLogger
+local.file_match "app_logs" {
+  path_targets = [{"__path__" = "/var/log/app/*.log"}]
+  sync_period  = "5s"
+}
+
+loki.source.file "app_logs" {
+  targets    = local.file_match.app_logs.targets
+  forward_to = [loki.process.classify.receiver]
+}
+
+// Parse Drogon/trantor log format:
+// "20240101 12:34:56.789 INFO  - message..."
+loki.process "classify" {
+  forward_to = [loki.write.local.receiver]
+
+  // Add static app label
+  stage.static_labels {
+    values = { app = "project-calendar" }
+  }
+
+  // Extract level from log line
+  stage.regex {
+    expression = `^\d{8} \d{2}:\d{2}:\d{2}\.\d+\s+(?P<level>TRACE|DEBUG|INFO|WARN|ERROR|FATAL)`
+  }
+
+  // Promote level to Loki label
+  stage.labels {
+    values = { level = "" }
+  }
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+  external_labels = { app = "project-calendar" }
+}
+
+// ── Metrics forwarding ───────────────────────────────────────────────────────
+
+// Scrape backend /metrics and forward to Prometheus via remote_write
+prometheus.scrape "backend" {
+  targets = [
+    {"__address__" = "backend:8080", "__metrics_path__" = "/metrics", "job" = "backend"},
+  ]
+  scrape_interval = "10s"
+  forward_to      = [prometheus.remote_write.local.receiver]
+}
+
+prometheus.remote_write "local" {
+  endpoint {
+    url = "http://prometheus:9090/api/v1/write"
+  }
+}
