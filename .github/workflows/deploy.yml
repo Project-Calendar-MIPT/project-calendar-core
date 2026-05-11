@@ -122,10 +122,17 @@ jobs:
             git submodule update --remote --recursive --init
 
             cd /home/user/calendar/core
+
+            # Remove containers from the mis-named 'core' project (one-time cleanup)
+            sudo docker compose --project-name core \
+              -f docker-compose.yml \
+              -f monitoring/docker-compose.monitoring.yml \
+              down 2>/dev/null || true
+
             sudo docker compose \
               --project-name calendar \
               -f docker-compose.yml \
               -f monitoring/docker-compose.monitoring.yml \
-              up -d --build
+              up -d --build --remove-orphans
 
             sudo docker image prune -f
