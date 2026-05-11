@@ -55,6 +55,12 @@ class APIClient:
         response = requests.put(url, json=data, headers=self.headers() if auth else {})
         return response
     
+    def patch(self, endpoint: str, data: dict, auth: bool = True):
+        """PATCH request"""
+        url = f"{self.base_url}{API_PREFIX}{endpoint}"
+        response = requests.patch(url, json=data, headers=self.headers() if auth else {})
+        return response
+
     def delete(self, endpoint: str, auth: bool = True, params: dict = None):
         """DELETE request"""
         url = f"{self.base_url}{API_PREFIX}{endpoint}"
@@ -1929,6 +1935,773 @@ class TestNotificationSettings:
         }
         response = registered_user.put(self._url(other_id), payload, auth=True)
         assert response.status_code in (403, 404)
+
+
+class TestGetTaskById:
+    """GET /tasks/{task_id} — endpoint added in PR #38"""
+
+    def test_get_task_by_id_returns_task(self, registered_user):
+        task_data = {"title": "Get By ID Task", "description": "Single task fetch"}
+        create_resp = registered_user.post("/tasks", task_data, auth=True)
+        assert create_resp.status_code == 201
+        task_id = create_resp.json()["id"]
+
+        response = registered_user.get(f"/tasks/{task_id}", auth=True)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == task_id
+        assert data["title"] == "Get By ID Task"
+
+    def test_get_task_by_id_not_found(self, registered_user):
+        import uuid
+        response = registered_user.get(f"/tasks/{uuid.uuid4()}", auth=True)
+        assert response.status_code in (403, 404)
+
+    def test_get_task_by_id_unauthenticated(self, client, registered_user):
+        task_data = {"title": "Auth Check Task", "description": "Should require auth"}
+        create_resp = registered_user.post("/tasks", task_data, auth=True)
+        task_id = create_resp.json()["id"]
+
+        response = client.get(f"/tasks/{task_id}", auth=False)
+        assert response.status_code == 401
+
+
+class TestApplyApproveWorkflow:
+    """Full apply/approve/reject workflow for project applications"""
+
+    @staticmethod
+    def _make_user(client: "APIClient", prefix: str) -> "APIClient":
+        import uuid
+        email = f"{prefix}_{uuid.uuid4().hex[:8]}@example.com"
+        payload = {
+            "email": email,
+            "password": "TestPass123!",
+            "display_name": f"{prefix} User",
+            "work_schedule": [],
+        }
+        r = client.post("/auth/register", payload)
+        assert r.status_code == 201
+        data = r.json()
+        c = APIClient()
+        c.set_token(data["token"], data["user"]["id"])
+        return c
+
+    def test_apply_to_project(self, registered_user, client):
+        """Non-owner can apply to a project"""
+        applicant = self._make_user(client, "applicant")
+
+        project_data = {
+            "title": "Open Project",
+            "description": "Anyone can apply",
+            "start_date": "2026-06-01",
+            "due_date": "2026-08-31",
+            "assignee_user_id": registered_user.user_id,
+        }
+        proj_resp = registered_user.post("/tasks", project_data, auth=True)
+        assert proj_resp.status_code == 201
+        project_id = proj_resp.json()["id"]
+
+        apply_resp = applicant.post(f"/projects/{project_id}/apply", {}, auth=True)
+        assert apply_resp.status_code in (200, 201, 204)
+
+    def test_owner_sees_applications(self, registered_user, client):
+        """Owner can list incoming applications"""
+        applicant = self._make_user(client, "applist")
+
+        project_data = {
+            "title": "Project With Apps",
+            "description": "Check apps list",
+            "start_date": "2026-06-01",
+            "due_date": "2026-08-31",
+            "assignee_user_id": registered_user.user_id,
+        }
+        proj_resp = registered_user.post("/tasks", project_data, auth=True)
+        assert proj_resp.status_code == 201
+        project_id = proj_resp.json()["id"]
+
+        applicant.post(f"/projects/{project_id}/apply", {}, auth=True)
+
+        apps_resp = registered_user.get(f"/projects/{project_id}/applications", auth=True)
+        assert apps_resp.status_code == 200
+        apps = apps_resp.json()
+        assert isinstance(apps, list)
+        applicant_ids = [a.get("user_id") or a.get("applicant_id") for a in apps]
+        assert applicant.user_id in applicant_ids
+
+    def test_owner_approves_application(self, registered_user, client):
+        """Owner can approve an application; applicant becomes a member"""
+        applicant = self._make_user(client, "approve")
+
+        project_data = {
+            "title": "Approving Project",
+            "description": "Approve workflow",
+            "start_date": "2026-06-01",
+            "due_date": "2026-08-31",
+            "assignee_user_id": registered_user.user_id,
+        }
+        proj_resp = registered_user.post("/tasks", project_data, auth=True)
+        assert proj_resp.status_code == 201
+        project_id = proj_resp.json()["id"]
+
+        applicant.post(f"/projects/{project_id}/apply", {}, auth=True)
+
+        apps_resp = registered_user.get(f"/projects/{project_id}/applications", auth=True)
+        assert apps_resp.status_code == 200
+        apps = apps_resp.json()
+        assert len(apps) >= 1
+
+        app_id = apps[0].get("id") or apps[0].get("application_id")
+        approve_resp = registered_user.post(
+            f"/projects/{project_id}/applications/{app_id}/approve", {}, auth=True
+        )
+        assert approve_resp.status_code in (200, 201, 204)
+
+        # Applicant should now appear in assignments
+        members_resp = registered_user.get(f"/tasks/{project_id}/assignments", auth=True)
+        assert members_resp.status_code == 200
+        member_ids = [m.get("user_id") for m in members_resp.json()]
+        assert applicant.user_id in member_ids
+
+    def test_owner_rejects_application(self, registered_user, client):
+        """Owner can reject an application; applicant is NOT added"""
+        applicant = self._make_user(client, "reject")
+
+        project_data = {
+            "title": "Rejecting Project",
+            "description": "Reject workflow",
+            "start_date": "2026-06-01",
+            "due_date": "2026-08-31",
+            "assignee_user_id": registered_user.user_id,
+        }
+        proj_resp = registered_user.post("/tasks", project_data, auth=True)
+        assert proj_resp.status_code == 201
+        project_id = proj_resp.json()["id"]
+
+        applicant.post(f"/projects/{project_id}/apply", {}, auth=True)
+
+        apps_resp = registered_user.get(f"/projects/{project_id}/applications", auth=True)
+        apps = apps_resp.json()
+        app_id = apps[0].get("id") or apps[0].get("application_id")
+
+        reject_resp = registered_user.post(
+            f"/projects/{project_id}/applications/{app_id}/reject", {}, auth=True
+        )
+        assert reject_resp.status_code in (200, 201, 204)
+
+        members_resp = registered_user.get(f"/tasks/{project_id}/assignments", auth=True)
+        member_ids = [m.get("user_id") for m in members_resp.json()]
+        assert applicant.user_id not in member_ids
+
+    def test_non_owner_cannot_see_applications(self, registered_user, client):
+        """Non-owner gets 403 when listing applications"""
+        other = self._make_user(client, "nonapps")
+
+        project_data = {
+            "title": "Private Apps Project",
+            "description": "Only owner sees apps",
+            "start_date": "2026-06-01",
+            "due_date": "2026-08-31",
+            "assignee_user_id": registered_user.user_id,
+        }
+        proj_resp = registered_user.post("/tasks", project_data, auth=True)
+        project_id = proj_resp.json()["id"]
+
+        apps_resp = other.get(f"/projects/{project_id}/applications", auth=True)
+        assert apps_resp.status_code in (403, 404)
+
+
+class TestCrossProjectScheduling:
+    """Verify that task_schedule is populated on assignment and tracks time cross-project"""
+
+    @staticmethod
+    def _make_user(client: "APIClient", prefix: str) -> "APIClient":
+        import uuid
+        email = f"{prefix}_{uuid.uuid4().hex[:8]}@example.com"
+        payload = {
+            "email": email,
+            "password": "TestPass123!",
+            "display_name": f"{prefix} Worker",
+            "work_schedule": [
+                {"weekday": 0, "start_time": "09:00:00", "end_time": "18:00:00"},
+                {"weekday": 1, "start_time": "09:00:00", "end_time": "18:00:00"},
+                {"weekday": 2, "start_time": "09:00:00", "end_time": "18:00:00"},
+                {"weekday": 3, "start_time": "09:00:00", "end_time": "18:00:00"},
+                {"weekday": 4, "start_time": "09:00:00", "end_time": "18:00:00"},
+            ],
+        }
+        r = client.post("/auth/register", payload)
+        assert r.status_code == 201
+        data = r.json()
+        c = APIClient()
+        c.set_token(data["token"], data["user"]["id"])
+        return c
+
+    def test_task_schedule_populated_on_assignment(self, registered_user, client):
+        """After assigning a user to a timed task, availability returns non-zero busy_hours"""
+        worker = self._make_user(client, "sched_worker")
+
+        task_data = {
+            "title": "Scheduled Task",
+            "description": "Has dates and assigned hours",
+            "start_date": "2026-07-01",
+            "due_date": "2026-07-10",
+            "assignee_user_id": registered_user.user_id,
+            "estimated_hours": 40,
+        }
+        task_resp = registered_user.post("/tasks", task_data, auth=True)
+        assert task_resp.status_code == 201
+        task_id = task_resp.json()["id"]
+
+        # Assign worker to the task
+        assign_resp = registered_user.post(
+            f"/tasks/{task_id}/assignments",
+            {"user_id": worker.user_id, "assigned_hours": 40.0},
+            auth=True,
+        )
+        assert assign_resp.status_code == 201
+
+        # Check worker's availability — should show busy_hours > 0
+        avail_payload = {
+            "user_id": worker.user_id,
+            "start_ts": "2026-07-01T00:00:00Z",
+            "end_ts": "2026-07-10T23:59:59Z",
+        }
+        avail_resp = registered_user.post(
+            "/tasks/availability/calculate", avail_payload, auth=True
+        )
+        assert avail_resp.status_code == 200
+        data = avail_resp.json()
+        assert data["busy_hours"] > 0, (
+            f"Expected busy_hours > 0 after assignment, got {data['busy_hours']}"
+        )
+
+    def test_task_schedule_cleared_on_unassignment(self, registered_user, client):
+        """After removing a user's assignment, busy_hours drops to 0 for that task"""
+        worker = self._make_user(client, "unsched_worker")
+
+        task_data = {
+            "title": "Clearable Task",
+            "description": "Schedule cleared on delete",
+            "start_date": "2026-07-15",
+            "due_date": "2026-07-20",
+            "assignee_user_id": registered_user.user_id,
+            "estimated_hours": 20,
+        }
+        task_resp = registered_user.post("/tasks", task_data, auth=True)
+        task_id = task_resp.json()["id"]
+
+        assign_resp = registered_user.post(
+            f"/tasks/{task_id}/assignments",
+            {"user_id": worker.user_id, "assigned_hours": 20.0},
+            auth=True,
+        )
+        assert assign_resp.status_code == 201
+
+        # Delete the assignment
+        del_resp = registered_user.delete(
+            f"/tasks/{task_id}/assignments/{worker.user_id}", auth=True
+        )
+        assert del_resp.status_code == 200
+
+        # busy_hours should now be 0
+        avail_payload = {
+            "user_id": worker.user_id,
+            "start_ts": "2026-07-15T00:00:00Z",
+            "end_ts": "2026-07-20T23:59:59Z",
+        }
+        avail_resp = registered_user.post(
+            "/tasks/availability/calculate", avail_payload, auth=True
+        )
+        assert avail_resp.status_code == 200
+        assert avail_resp.json()["busy_hours"] == 0.0
+
+    def test_cross_project_busy_hours_accumulate(self, registered_user, client):
+        """User assigned to two overlapping tasks in different projects shows summed busy_hours"""
+        worker = self._make_user(client, "cross_proj_worker")
+
+        # Project 1 task: July 1–10, 40h
+        t1_resp = registered_user.post(
+            "/tasks",
+            {
+                "title": "Cross Proj Task 1",
+                "description": "Project 1 task",
+                "start_date": "2026-07-01",
+                "due_date": "2026-07-10",
+                "assignee_user_id": registered_user.user_id,
+                "estimated_hours": 40,
+            },
+            auth=True,
+        )
+        assert t1_resp.status_code == 201
+        task1_id = t1_resp.json()["id"]
+
+        # Project 2 task: July 5–15, 40h
+        t2_resp = registered_user.post(
+            "/tasks",
+            {
+                "title": "Cross Proj Task 2",
+                "description": "Project 2 task",
+                "start_date": "2026-07-05",
+                "due_date": "2026-07-15",
+                "assignee_user_id": registered_user.user_id,
+                "estimated_hours": 40,
+            },
+            auth=True,
+        )
+        assert t2_resp.status_code == 201
+        task2_id = t2_resp.json()["id"]
+
+        # Assign worker to both
+        r1 = registered_user.post(
+            f"/tasks/{task1_id}/assignments",
+            {"user_id": worker.user_id, "assigned_hours": 40.0},
+            auth=True,
+        )
+        r2 = registered_user.post(
+            f"/tasks/{task2_id}/assignments",
+            {"user_id": worker.user_id, "assigned_hours": 40.0},
+            auth=True,
+        )
+        assert r1.status_code == 201
+        assert r2.status_code == 201
+
+        # Check availability in the overlap window (July 5–10)
+        avail_payload = {
+            "user_id": worker.user_id,
+            "start_ts": "2026-07-05T00:00:00Z",
+            "end_ts": "2026-07-10T23:59:59Z",
+        }
+        avail_resp = registered_user.post(
+            "/tasks/availability/calculate", avail_payload, auth=True
+        )
+        assert avail_resp.status_code == 200
+        data = avail_resp.json()
+        # Both tasks contribute to busy_hours in the overlap window
+        assert data["busy_hours"] > 0, "Cross-project busy_hours must be > 0 in overlap"
+
+    def test_task_schedule_updated_when_dates_change(self, registered_user, client):
+        """Updating task dates refreshes task_schedule entries"""
+        worker = self._make_user(client, "date_update_worker")
+
+        task_data = {
+            "title": "Date Update Task",
+            "description": "Dates will change",
+            "start_date": "2026-08-01",
+            "due_date": "2026-08-05",
+            "assignee_user_id": registered_user.user_id,
+            "estimated_hours": 20,
+        }
+        task_resp = registered_user.post("/tasks", task_data, auth=True)
+        task_id = task_resp.json()["id"]
+
+        registered_user.post(
+            f"/tasks/{task_id}/assignments",
+            {"user_id": worker.user_id, "assigned_hours": 20.0},
+            auth=True,
+        )
+
+        # Old range should show busy_hours
+        avail_old = registered_user.post(
+            "/tasks/availability/calculate",
+            {"user_id": worker.user_id, "start_ts": "2026-08-01T00:00:00Z", "end_ts": "2026-08-05T23:59:59Z"},
+            auth=True,
+        )
+        assert avail_old.json()["busy_hours"] > 0
+
+        # Update task to new dates
+        update_resp = registered_user.put(
+            f"/tasks/{task_id}",
+            {"start_date": "2026-09-01", "due_date": "2026-09-05"},
+            auth=True,
+        )
+        assert update_resp.status_code == 200
+
+        # Old range should now show 0 busy_hours
+        avail_old_after = registered_user.post(
+            "/tasks/availability/calculate",
+            {"user_id": worker.user_id, "start_ts": "2026-08-01T00:00:00Z", "end_ts": "2026-08-05T23:59:59Z"},
+            auth=True,
+        )
+        assert avail_old_after.json()["busy_hours"] == 0.0
+
+        # New range should show busy_hours
+        avail_new = registered_user.post(
+            "/tasks/availability/calculate",
+            {"user_id": worker.user_id, "start_ts": "2026-09-01T00:00:00Z", "end_ts": "2026-09-05T23:59:59Z"},
+            auth=True,
+        )
+        assert avail_new.json()["busy_hours"] > 0
+
+    def test_supervisor_can_read_member_workload(self, registered_user, client):
+        """Project supervisor/owner can read a member's workload (cross-project access)"""
+        worker = self._make_user(client, "workload_member")
+
+        task_data = {
+            "title": "Workload Project Task",
+            "description": "Supervisor checks member workload",
+            "start_date": "2026-09-01",
+            "due_date": "2026-09-30",
+            "assignee_user_id": registered_user.user_id,
+            "estimated_hours": 80,
+        }
+        task_resp = registered_user.post("/tasks", task_data, auth=True)
+        task_id = task_resp.json()["id"]
+
+        registered_user.post(
+            f"/tasks/{task_id}/assignments",
+            {"user_id": worker.user_id, "assigned_hours": 80.0},
+            auth=True,
+        )
+
+        # Registered user (owner) reads worker's workload
+        workload_resp = registered_user.get(
+            f"/users/{worker.user_id}/workload",
+            params={"start_ts": "2026-09-01T00:00:00Z", "end_ts": "2026-09-30T23:59:59Z"},
+            auth=True,
+        )
+        assert workload_resp.status_code == 200, (
+            f"Owner should be able to read member workload, got {workload_resp.status_code}: {workload_resp.text}"
+        )
+        data = workload_resp.json()
+        assert data["user_id"] == worker.user_id
+        assert data["scheduled_tasks"] >= 1
+
+    def test_unrelated_user_cannot_read_workload(self, registered_user, client):
+        """User with no shared project cannot read another user's workload"""
+        worker = self._make_user(client, "workload_isolated")
+
+        response = registered_user.get(
+            f"/users/{worker.user_id}/workload",
+            params={"start_ts": "2026-09-01T00:00:00Z", "end_ts": "2026-09-30T23:59:59Z"},
+            auth=True,
+        )
+        # No shared project → 403
+        assert response.status_code == 403
+
+
+class TestRoleChangeWorkflow:
+    """Role change by delete + re-assign (frontend pattern from AssignmentManager)"""
+
+    @staticmethod
+    def _make_user(client: "APIClient", prefix: str) -> "APIClient":
+        import uuid
+        email = f"{prefix}_{uuid.uuid4().hex[:8]}@example.com"
+        payload = {
+            "email": email,
+            "password": "TestPass123!",
+            "display_name": f"{prefix} User",
+            "work_schedule": [],
+        }
+        r = client.post("/auth/register", payload)
+        assert r.status_code == 201
+        data = r.json()
+        c = APIClient()
+        c.set_token(data["token"], data["user"]["id"])
+        return c
+
+    def test_change_role_via_delete_and_reassign(self, registered_user, client):
+        """Role change: delete assignment → re-assign with new role → verify"""
+        member = self._make_user(client, "role_change")
+
+        task_data = {"title": "Role Change Project", "description": "Role swap test"}
+        task_resp = registered_user.post("/tasks", task_data, auth=True)
+        assert task_resp.status_code == 201
+        task_id = task_resp.json()["id"]
+
+        # Assign as executor
+        assign_resp = registered_user.post(
+            f"/tasks/{task_id}/assignments",
+            {"user_id": member.user_id, "role": "executor"},
+            auth=True,
+        )
+        assert assign_resp.status_code == 201
+
+        # Verify role is executor
+        list_resp = registered_user.get(f"/tasks/{task_id}/assignments", auth=True)
+        roles = {a["user_id"]: a.get("role") for a in list_resp.json()}
+        assert roles.get(member.user_id) == "executor"
+
+        # Delete the assignment
+        del_resp = registered_user.delete(
+            f"/tasks/{task_id}/assignments/{member.user_id}", auth=True
+        )
+        assert del_resp.status_code == 200
+
+        # Re-assign with supervisor role
+        reassign_resp = registered_user.post(
+            f"/tasks/{task_id}/assignments",
+            {"user_id": member.user_id, "role": "supervisor"},
+            auth=True,
+        )
+        assert reassign_resp.status_code == 201
+
+        # Verify new role is supervisor
+        list_resp2 = registered_user.get(f"/tasks/{task_id}/assignments", auth=True)
+        roles2 = {a["user_id"]: a.get("role") for a in list_resp2.json()}
+        assert roles2.get(member.user_id) == "supervisor"
+
+    def test_owner_cannot_be_removed(self, registered_user, client):
+        """Attempting to remove project owner returns an appropriate error or ignores"""
+        task_data = {"title": "Owner Keep Project", "description": "Should not remove owner"}
+        task_resp = registered_user.post("/tasks", task_data, auth=True)
+        task_id = task_resp.json()["id"]
+
+        # Try to remove self (who is owner) — backend may forbid or allow
+        del_resp = registered_user.delete(
+            f"/tasks/{task_id}/assignments/{registered_user.user_id}", auth=True
+        )
+        # Either 200 (allowed) or 403 (forbidden) are valid behaviors
+        assert del_resp.status_code in (200, 403, 400)
+
+    def test_spectator_role_assignment(self, registered_user, client):
+        """User can be assigned spectator role"""
+        spectator = self._make_user(client, "spectator")
+
+        task_data = {"title": "Spectator Task", "description": "Read only member"}
+        task_resp = registered_user.post("/tasks", task_data, auth=True)
+        task_id = task_resp.json()["id"]
+
+        assign_resp = registered_user.post(
+            f"/tasks/{task_id}/assignments",
+            {"user_id": spectator.user_id, "role": "spectator"},
+            auth=True,
+        )
+        assert assign_resp.status_code == 201
+
+        list_resp = registered_user.get(f"/tasks/{task_id}/assignments", auth=True)
+        roles = {a["user_id"]: a.get("role") for a in list_resp.json()}
+        assert roles.get(spectator.user_id) == "spectator"
+
+
+class TestSchedulingConflictDetection:
+    """
+    Conflict detection: POST /tasks/{id}/assignments returns scheduling_conflicts
+    when the user is already assigned to an overlapping task.
+    Also verifies the end-of-day inclusive boundary (due_date covers the full day).
+    """
+
+    @staticmethod
+    def _make_user(client: "APIClient", prefix: str) -> "APIClient":
+        import uuid
+        email = f"{prefix}_{uuid.uuid4().hex[:8]}@example.com"
+        payload = {
+            "email": email,
+            "password": "TestPass123!",
+            "display_name": f"{prefix} User",
+            "work_schedule": [],
+        }
+        r = client.post("/auth/register", payload)
+        assert r.status_code == 201
+        data = r.json()
+        c = APIClient()
+        c.set_token(data["token"], data["user"]["id"])
+        return c
+
+    def test_conflict_returned_when_dates_overlap(self, registered_user, client):
+        """Assigning a user to two tasks with overlapping dates returns scheduling_conflicts"""
+        worker = self._make_user(client, "conflict_worker")
+
+        # Task 1: July 1–10
+        t1_resp = registered_user.post(
+            "/tasks",
+            {
+                "title": "Conflict Task A",
+                "description": "First booking",
+                "start_date": "2026-07-01",
+                "due_date": "2026-07-10",
+                "assignee_user_id": registered_user.user_id,
+                "estimated_hours": 40,
+            },
+            auth=True,
+        )
+        assert t1_resp.status_code == 201
+        task1_id = t1_resp.json()["id"]
+
+        # Assign worker to task 1
+        r1 = registered_user.post(
+            f"/tasks/{task1_id}/assignments",
+            {"user_id": worker.user_id, "assigned_hours": 40.0},
+            auth=True,
+        )
+        assert r1.status_code == 201
+        assert "scheduling_conflicts" not in r1.json(), "First assignment should have no conflicts"
+
+        # Task 2: July 5–15 — overlaps with task 1
+        t2_resp = registered_user.post(
+            "/tasks",
+            {
+                "title": "Conflict Task B",
+                "description": "Second booking overlaps",
+                "start_date": "2026-07-05",
+                "due_date": "2026-07-15",
+                "assignee_user_id": registered_user.user_id,
+                "estimated_hours": 40,
+            },
+            auth=True,
+        )
+        assert t2_resp.status_code == 201
+        task2_id = t2_resp.json()["id"]
+
+        # Assign worker to task 2 — should report scheduling_conflicts
+        r2 = registered_user.post(
+            f"/tasks/{task2_id}/assignments",
+            {"user_id": worker.user_id, "assigned_hours": 40.0},
+            auth=True,
+        )
+        assert r2.status_code == 201, f"Assignment should succeed (warning, not block): {r2.text}"
+        body = r2.json()
+        assert "scheduling_conflicts" in body, (
+            f"Expected scheduling_conflicts in response when overlap exists, got: {body}"
+        )
+        conflicts = body["scheduling_conflicts"]
+        assert len(conflicts) >= 1
+        conflict_task_ids = [c["task_id"] for c in conflicts]
+        assert task1_id in conflict_task_ids, "Task 1 should appear in conflicts"
+
+    def test_no_conflict_when_tasks_do_not_overlap(self, registered_user, client):
+        """Assigning a user to non-overlapping tasks returns no scheduling_conflicts"""
+        worker = self._make_user(client, "no_conflict_worker")
+
+        # Task 1: July 1–10
+        t1_resp = registered_user.post(
+            "/tasks",
+            {
+                "title": "No Conflict A",
+                "description": "First booking",
+                "start_date": "2026-07-01",
+                "due_date": "2026-07-10",
+                "assignee_user_id": registered_user.user_id,
+                "estimated_hours": 20,
+            },
+            auth=True,
+        )
+        task1_id = t1_resp.json()["id"]
+        registered_user.post(
+            f"/tasks/{task1_id}/assignments",
+            {"user_id": worker.user_id, "assigned_hours": 20.0},
+            auth=True,
+        )
+
+        # Task 2: July 11–20 — starts exactly when task 1 ends (next day)
+        t2_resp = registered_user.post(
+            "/tasks",
+            {
+                "title": "No Conflict B",
+                "description": "Second booking after first",
+                "start_date": "2026-07-11",
+                "due_date": "2026-07-20",
+                "assignee_user_id": registered_user.user_id,
+                "estimated_hours": 20,
+            },
+            auth=True,
+        )
+        task2_id = t2_resp.json()["id"]
+
+        r2 = registered_user.post(
+            f"/tasks/{task2_id}/assignments",
+            {"user_id": worker.user_id, "assigned_hours": 20.0},
+            auth=True,
+        )
+        assert r2.status_code == 201
+        body = r2.json()
+        assert "scheduling_conflicts" not in body, (
+            f"Expected no scheduling_conflicts for non-overlapping tasks, got: {body}"
+        )
+
+    def test_due_date_end_of_day_inclusive(self, registered_user, client):
+        """Task with due_date=July 10 should include the full day (end_ts = July 10 23:59:59).
+        A task starting July 10 must conflict with it."""
+        worker = self._make_user(client, "eod_worker")
+
+        # Task 1: July 1–10 inclusive
+        t1_resp = registered_user.post(
+            "/tasks",
+            {
+                "title": "EOD Task A",
+                "description": "End of day test task A",
+                "start_date": "2026-07-01",
+                "due_date": "2026-07-10",
+                "assignee_user_id": registered_user.user_id,
+                "estimated_hours": 40,
+            },
+            auth=True,
+        )
+        assert t1_resp.status_code == 201, f"Task A creation failed: {t1_resp.text}"
+        task1_id = t1_resp.json()["id"]
+        registered_user.post(
+            f"/tasks/{task1_id}/assignments",
+            {"user_id": worker.user_id, "assigned_hours": 40.0},
+            auth=True,
+        )
+
+        # Task 2: starts July 10 (same day as task 1 ends) — must detect overlap
+        t2_resp = registered_user.post(
+            "/tasks",
+            {
+                "title": "EOD Task B",
+                "description": "End of day test task B",
+                "start_date": "2026-07-10",
+                "due_date": "2026-07-12",
+                "assignee_user_id": registered_user.user_id,
+                "estimated_hours": 16,
+            },
+            auth=True,
+        )
+        assert t2_resp.status_code == 201, f"Task B creation failed: {t2_resp.text}"
+        task2_id = t2_resp.json()["id"]
+
+        r2 = registered_user.post(
+            f"/tasks/{task2_id}/assignments",
+            {"user_id": worker.user_id, "assigned_hours": 16.0},
+            auth=True,
+        )
+        assert r2.status_code == 201
+        body = r2.json()
+        assert "scheduling_conflicts" in body, (
+            "Task starting on the same day as another task's due_date must report a conflict "
+            "(end_ts is end of July 10, start_ts of new task is start of July 10)"
+        )
+
+    def test_conflict_also_visible_in_availability(self, registered_user, client):
+        """After conflicting assignment, availability endpoint shows busy_hours from both tasks"""
+        worker = self._make_user(client, "avail_conflict_worker")
+
+        # Two tasks in the same July 5–10 window
+        for title, start, end, hours in [
+            ("Availability Conflict A", "2026-07-01", "2026-07-10", 40.0),
+            ("Availability Conflict B", "2026-07-05", "2026-07-15", 40.0),
+        ]:
+            t_resp = registered_user.post(
+                "/tasks",
+                {
+                    "title": title,
+                    "description": f"Availability conflict test: {title}",
+                    "start_date": start,
+                    "due_date": end,
+                    "assignee_user_id": registered_user.user_id,
+                    "estimated_hours": int(hours),
+                },
+                auth=True,
+            )
+            assert t_resp.status_code == 201, f"Task creation failed: {t_resp.text}"
+            task_id = t_resp.json()["id"]
+            registered_user.post(
+                f"/tasks/{task_id}/assignments",
+                {"user_id": worker.user_id, "assigned_hours": hours},
+                auth=True,
+            )
+
+        avail = registered_user.post(
+            "/tasks/availability/calculate",
+            {
+                "user_id": worker.user_id,
+                "start_ts": "2026-07-05T00:00:00Z",
+                "end_ts": "2026-07-10T23:59:59Z",
+            },
+            auth=True,
+        )
+        assert avail.status_code == 200
+        assert avail.json()["busy_hours"] > 0
 
 
 if __name__ == "__main__":

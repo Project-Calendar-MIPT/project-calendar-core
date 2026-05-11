@@ -379,11 +379,32 @@ void UsersController::getUserWorkload(
   }
 
   if (requesterId != userId) {
-    auto resp = HttpResponse::newHttpJsonResponse(
-        Json::Value("Forbidden: cannot read workload for another user"));
-    resp->setStatusCode(k403Forbidden);
-    callback(resp);
-    return;
+    // Allow if requester is owner/supervisor of any project where userId is a member
+    auto dbClient2 = app().getDbClient();
+    auto permitted = dbClient2->execSqlSync(
+        R"sql(
+        SELECT 1
+        FROM task_role_assignment requester_role
+        JOIN task proj ON proj.id = requester_role.task_id
+                       AND proj.parent_task_id IS NULL
+        WHERE requester_role.user_id = $1::uuid
+          AND requester_role.role IN ('owner', 'supervisor')
+          AND EXISTS (
+            SELECT 1 FROM task_assignment ta
+            JOIN task t ON t.id = ta.task_id
+            WHERE ta.user_id = $2::uuid
+              AND (t.project_root_id = proj.id OR t.id = proj.id)
+          )
+        LIMIT 1
+        )sql",
+        requesterId, userId);
+    if (permitted.empty()) {
+      auto resp = HttpResponse::newHttpJsonResponse(
+          Json::Value("Forbidden: cannot read workload for another user"));
+      resp->setStatusCode(k403Forbidden);
+      callback(resp);
+      return;
+    }
   }
 
   std::string startTs = req->getParameter("start_ts");
