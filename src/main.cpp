@@ -1,14 +1,27 @@
 #include <drogon/drogon.h>
 #include <drogon/orm/DbClient.h>
 #include <trantor/utils/Logger.h>
+#include <trantor/utils/AsyncFileLogger.h>
 #include <cstdlib>
 #include <string>
 
 #include "API/KafkaProducer.h"
 
 int main() {
-  // Load configuration
   trantor::Logger::setLogLevel(trantor::Logger::kInfo);
+
+  // Write logs to file when LOG_PATH env var is set (e.g. /var/log/app)
+  static trantor::AsyncFileLogger asyncFileLogger;
+  const char* logPath = std::getenv("LOG_PATH");
+  if (logPath && logPath[0] != '\0') {
+    asyncFileLogger.setFileName(std::string(logPath) + "/project-calendar");
+    asyncFileLogger.startLogging();
+    trantor::Logger::setOutputFunction(
+        [](const char* msg, const uint64_t len) {
+          asyncFileLogger.output(msg, len);
+        },
+        []() { asyncFileLogger.flush(); });
+  }
   
   // Get database configuration from environment
   const char* dbHost = std::getenv("DB_HOST");

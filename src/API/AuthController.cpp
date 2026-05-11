@@ -14,7 +14,9 @@
 #include <cctype>
 #include <cstdlib>
 #include <exception>
+#include <fstream>
 #include <functional>
+#include <sstream>
 #include <utility>
 
 #include "models/AppUser.h"
@@ -702,4 +704,85 @@ void AuthController::verifyEmail(
     resp->setStatusCode(k500InternalServerError);
     callback(resp);
   }
+}
+
+void AuthController::getLogs(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  // Only the server admin (verified by env-based token) can read logs
+  const std::string authHeader = req->getHeader("Authorization");
+  const char* adminToken = std::getenv("ADMIN_LOG_TOKEN");
+  if (!adminToken || adminToken[0] == '\0' ||
+      authHeader != std::string("Bearer ") + adminToken) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Forbidden"));
+    resp->setStatusCode(k403Forbidden);
+    return callback(resp);
+  }
+
+  const char* logPath = std::getenv("LOG_PATH");
+  if (!logPath || logPath[0] == '\0') {
+    auto resp = HttpResponse::newHttpJsonResponse(
+        Json::Value("LOG_PATH not configured"));
+    resp->setStatusCode(k503ServiceUnavailable);
+    return callback(resp);
+  }
+
+  // Parse ?lines= query param (default 200, max 2000)
+  int nLines = 200;
+  const std::string linesParam = req->getParameter("lines");
+  if (!linesParam.empty()) {
+    try {
+      nLines = std::min(2000, std::max(1, std::stoi(linesParam)));
+    } catch (...) {}
+  }
+
+  // Find the most recent log file: project-calendar_*.log
+  const std::string pattern = std::string(logPath) + "/project-calendar";
+  std::string logFile = pattern + ".log";
+  // AsyncFileLogger rotates with suffix _1, _2, ... ; the active file has no
+  // number suffix but trantor names it project-calendar_<timestamp>_1.log
+  // Try the plain name first, then fall back to a glob-style search
+  {
+    std::ifstream probe(logFile);
+    if (!probe.good()) {
+      // Fallback: iterate directory for the most recently modified match
+      // (simple approach: try _1 suffix)
+      logFile = pattern + "_1.log";
+    }
+  }
+
+  std::ifstream f(logFile, std::ios::ate);
+  if (!f.good()) {
+    auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Log file not found"));
+    resp->setStatusCode(k404NotFound);
+    return callback(resp);
+  }
+
+  // Read last nLines lines from the file
+  std::streamsize size = f.tellg();
+  std::string buf(static_cast<size_t>(size), '\0');
+  f.seekg(0);
+  f.read(&buf[0], size);
+
+  std::vector<std::string> lines;
+  lines.reserve(static_cast<size_t>(nLines) + 1);
+  std::istringstream ss(buf);
+  std::string line;
+  while (std::getline(ss, line)) lines.push_back(std::move(line));
+
+  Json::Value arr(Json::arrayValue);
+  const int start = static_cast<int>(lines.size()) - nLines;
+  for (int i = std::max(0, start); i < static_cast<int>(lines.size()); ++i) {
+    arr.append(lines[static_cast<size_t>(i)]);
+  }
+
+  Json::Value out(Json::objectValue);
+  out["file"] = logFile;
+  out["total_lines"] = static_cast<int>(lines.size());
+  out["returned"] = arr.size();
+  out["lines"] = arr;
+
+  auto resp = HttpResponse::newHttpJsonResponse(out);
+  resp->setStatusCode(k200OK);
+  callback(resp);
 }

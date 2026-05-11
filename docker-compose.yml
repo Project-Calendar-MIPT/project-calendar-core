@@ -81,6 +81,10 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       FRONTEND_URL: http://localhost:5173
       SKIP_EMAIL_VERIFICATION: "false"
+      LOG_PATH: /var/log/app
+      ADMIN_LOG_TOKEN: "change_this_admin_token_in_production"
+    volumes:
+      - ./logs:/var/log/app
     ports:
       - "8080:8080"
     restart: unless-stopped

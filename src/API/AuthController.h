@@ -10,6 +10,7 @@ class AuthController : public drogon::HttpController<AuthController> {
   ADD_METHOD_TO(AuthController::login, "/api/auth/login", Post);
   ADD_METHOD_TO(AuthController::me, "/api/auth/me", Get, "AuthFilter");
   ADD_METHOD_TO(AuthController::verifyEmail, "/api/auth/verify-email", Get);
+  ADD_METHOD_TO(AuthController::getLogs, "/api/admin/logs", Get, "AuthFilter");
   METHOD_LIST_END
 
   void registerUser(
@@ -25,4 +26,7 @@ class AuthController : public drogon::HttpController<AuthController> {
   void verifyEmail(
       const drogon::HttpRequestPtr& req,
       std::function<void(const drogon::HttpResponsePtr&)>&& callback);
+
+  void getLogs(const drogon::HttpRequestPtr& req,
+               std::function<void(const drogon::HttpResponsePtr&)>&& callback);
 };
