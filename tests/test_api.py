@@ -3,68 +3,75 @@ Integration tests for Project Calendar API
 Tests cover authentication, task management, and calendar functionality
 """
 
+import os
+import time
+from pathlib import Path
+from typing import Dict, Optional
+
 import pytest
 import requests
-import time
-from typing import Dict, Optional
-import os
-from pathlib import Path
 import yaml
 
 # Configuration
-BASE_URL = os.getenv("TEST_BASE_URL", "http://localhost:8081")
+BASE_URL = os.getenv("TEST_BASE_URL", "http://localhost:8080")
 API_PREFIX = "/api"
 
 
 class APIClient:
     """Helper class for API requests"""
-    
+
     def __init__(self, base_url: str = BASE_URL):
         self.base_url = base_url
         self.token: Optional[str] = None
         self.user_id: Optional[str] = None
-    
+
     def set_token(self, token: str, user_id: str):
         """Set authentication token"""
         self.token = token
         self.user_id = user_id
-    
+
     def headers(self) -> Dict[str, str]:
         """Get headers with authentication"""
         headers = {"Content-Type": "application/json"}
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
-    
+
     def post(self, endpoint: str, data: dict, auth: bool = False):
         """POST request"""
         url = f"{self.base_url}{API_PREFIX}{endpoint}"
         headers = self.headers() if auth else {"Content-Type": "application/json"}
         response = requests.post(url, json=data, headers=headers)
         return response
-    
+
     def get(self, endpoint: str, params: dict = None, auth: bool = True):
         """GET request"""
         url = f"{self.base_url}{API_PREFIX}{endpoint}"
-        response = requests.get(url, params=params, headers=self.headers() if auth else {})
+        response = requests.get(
+            url, params=params, headers=self.headers() if auth else {}
+        )
         return response
-    
+
     def put(self, endpoint: str, data: dict, auth: bool = True):
         """PUT request"""
         url = f"{self.base_url}{API_PREFIX}{endpoint}"
         response = requests.put(url, json=data, headers=self.headers() if auth else {})
         return response
-    
+
     def patch(self, endpoint: str, data: dict, auth: bool = True):
         """PATCH request"""
         url = f"{self.base_url}{API_PREFIX}{endpoint}"
-        response = requests.patch(url, json=data, headers=self.headers() if auth else {})
+        response = requests.patch(
+            url, json=data, headers=self.headers() if auth else {}
+        )
         return response
 
     def delete(self, endpoint: str, auth: bool = True, params: dict = None):
         """DELETE request"""
         url = f"{self.base_url}{API_PREFIX}{endpoint}"
-        response = requests.delete(url, params=params, headers=self.headers() if auth else {})
+        response = requests.delete(
+            url, params=params, headers=self.headers() if auth else {}
+        )
         return response
 
 
@@ -73,19 +80,19 @@ def wait_for_backend():
     """Wait for backend to be ready"""
     max_retries = 30
     retry_delay = 2
-    
+
     for i in range(max_retries):
         try:
             response = requests.get(f"{BASE_URL}/", timeout=5)
             if response.status_code in [200, 404]:  # Either works, just need connection
-                print(f"Backend is ready after {i+1} attempts")
+                print(f"Backend is ready after {i + 1} attempts")
                 return True
         except requests.exceptions.RequestException:
             if i < max_retries - 1:
                 time.sleep(retry_delay)
             else:
                 raise
-    
+
     raise Exception("Backend did not start in time")
 
 
@@ -99,8 +106,9 @@ def client(wait_for_backend):
 def registered_user(client):
     """Register a test user and return authenticated client"""
     import uuid
+
     email = f"test_{uuid.uuid4().hex[:8]}@example.com"
-    
+
     user_data = {
         "email": email,
         "password": "TestPassword123!",
@@ -112,53 +120,54 @@ def registered_user(client):
             {"weekday": 1, "start_time": "09:00:00", "end_time": "18:00:00"},
             {"weekday": 2, "start_time": "09:00:00", "end_time": "18:00:00"},
             {"weekday": 3, "start_time": "09:00:00", "end_time": "18:00:00"},
-            {"weekday": 4, "start_time": "09:00:00", "end_time": "18:00:00"}
-        ]
+            {"weekday": 4, "start_time": "09:00:00", "end_time": "18:00:00"},
+        ],
     }
-    
+
     response = client.post("/auth/register", user_data)
     assert response.status_code == 201, f"Registration failed: {response.text}"
-    
+
     data = response.json()
     assert "token" in data
     assert "user" in data
-    
+
     client.set_token(data["token"], data["user"]["id"])
     return client
 
 
 class TestAuthentication:
     """Test authentication endpoints"""
-    
+
     def test_register_user_success(self, client):
         """Test successful user registration"""
         import uuid
+
         email = f"newuser_{uuid.uuid4().hex[:8]}@example.com"
-        
+
         user_data = {
             "email": email,
             "password": "SecurePass123!",
             "display_name": "New User",
             "work_schedule": [
                 {"weekday": 0, "start_time": "09:00:00", "end_time": "17:00:00"}
-            ]
+            ],
         }
-        
+
         response = client.post("/auth/register", user_data)
         assert response.status_code == 201
-        
+
         data = response.json()
         assert data["success"] == True
         assert "token" in data
         assert data["user"]["email"] == email
         assert data["user"]["display_name"] == "New User"
-    
+
     def test_register_duplicate_email(self, registered_user):
         """Test registration with duplicate email"""
         # Get the email from first user
         response = registered_user.get("/auth/me", auth=True)
         email = response.json()["email"]
-        
+
         # Try to register with same email
         user_data = {
             "email": email,
@@ -166,15 +175,16 @@ class TestAuthentication:
             "display_name": "Duplicate User",
             "work_schedule": [
                 {"weekday": 0, "start_time": "09:00:00", "end_time": "17:00:00"}
-            ]
+            ],
         }
-        
+
         response = registered_user.post("/auth/register", user_data)
         assert response.status_code == 409  # Conflict
-    
+
     def test_register_sunday_weekday_iso(self, client):
         """Test registration with Sunday as weekday=7 (ISO) is accepted and stored as 0"""
         import uuid
+
         email = f"sunday_{uuid.uuid4().hex[:8]}@example.com"
 
         user_data = {
@@ -183,7 +193,7 @@ class TestAuthentication:
             "display_name": "Sunday User",
             "work_schedule": [
                 {"weekday": 7, "start_time": "10:00:00", "end_time": "14:00:00"}
-            ]
+            ],
         }
 
         response = client.post("/auth/register", user_data)
@@ -192,24 +202,26 @@ class TestAuthentication:
     def test_register_invalid_password(self, client):
         """Test registration with empty password is rejected"""
         import uuid
+
         user_data = {
             "email": f"test_{uuid.uuid4().hex[:8]}@example.com",
             "password": "",
             "display_name": "Test",
             "work_schedule": [
                 {"weekday": 0, "start_time": "09:00:00", "end_time": "17:00:00"}
-            ]
+            ],
         }
 
         response = client.post("/auth/register", user_data)
         assert response.status_code == 400
-    
+
     def test_login_success(self, client):
         """Test successful login"""
         import uuid
+
         email = f"login_{uuid.uuid4().hex[:8]}@example.com"
         password = "LoginPass123!"
-        
+
         # Register user first
         user_data = {
             "email": email,
@@ -217,29 +229,29 @@ class TestAuthentication:
             "display_name": "Login User",
             "work_schedule": [
                 {"weekday": 0, "start_time": "09:00:00", "end_time": "17:00:00"}
-            ]
+            ],
         }
         client.post("/auth/register", user_data)
-        
+
         # Now login
         login_data = {"email": email, "password": password}
         response = client.post("/auth/login", login_data)
-        
+
         assert response.status_code == 200
         data = response.json()
         assert "token" in data
         assert "user" in data
-    
+
     def test_me_endpoint(self, registered_user):
         """Test /auth/me endpoint"""
         response = registered_user.get("/auth/me", auth=True)
-        
+
         assert response.status_code == 200
         data = response.json()
         assert "id" in data
         assert "email" in data
         assert "display_name" in data
-    
+
     def test_me_without_token(self, client):
         """Test /auth/me without authentication"""
         response = client.get("/auth/me", auth=False)
@@ -248,7 +260,7 @@ class TestAuthentication:
 
 class TestTaskManagement:
     """Test task-related endpoints"""
-    
+
     def test_create_task(self, registered_user):
         """Test creating a new task"""
         task_data = {
@@ -256,88 +268,85 @@ class TestTaskManagement:
             "description": "This is a test task",
             "priority": "high",
             "status": "open",
-            "estimated_hours": 10.5
+            "estimated_hours": 10.5,
         }
-        
+
         response = registered_user.post("/tasks", task_data, auth=True)
         assert response.status_code == 201
-        
+
         data = response.json()
         assert data["title"] == "Test Task"
         assert data["description"] == "This is a test task"
         assert data["priority"] == "high"
         assert "id" in data
-    
+
     def test_create_task_minimal(self, registered_user):
         """Test creating task with minimal data (title + description)"""
         task_data = {"title": "Minimal Task", "description": "Minimal description"}
-        
+
         response = registered_user.post("/tasks", task_data, auth=True)
         assert response.status_code == 201
-        
+
         data = response.json()
         assert data["title"] == "Minimal Task"
-    
+
     def test_get_tasks(self, registered_user):
         """Test getting tasks list"""
         # Create a task first
         task_data = {"title": "Task for List", "description": "Listed task"}
         registered_user.post("/tasks", task_data, auth=True)
-        
+
         # Get tasks
         response = registered_user.get("/tasks", auth=True)
         assert response.status_code == 200
-        
+
         data = response.json()
         assert isinstance(data, list)
         assert len(data) > 0
-    
+
     def test_create_subtask(self, registered_user):
         """Test creating a subtask"""
         # Create parent task
         parent_data = {"title": "Parent Task", "description": "Parent desc"}
         parent_response = registered_user.post("/tasks", parent_data, auth=True)
         parent_id = parent_response.json()["id"]
-        
+
         # Create subtask
         subtask_data = {
             "title": "Subtask",
             "description": "Subtask desc",
-            "parent_task_id": parent_id
+            "parent_task_id": parent_id,
         }
         response = registered_user.post("/tasks", subtask_data, auth=True)
         assert response.status_code == 201
-        
+
         data = response.json()
         assert data["title"] == "Subtask"
         assert data["parent_task_id"] == parent_id
-    
+
     def test_update_task(self, registered_user):
         """Test updating a task"""
         # Create task
         task_data = {"title": "Original Title", "description": "Original description"}
         create_response = registered_user.post("/tasks", task_data, auth=True)
         task_id = create_response.json()["id"]
-        
+
         # Update task
-        update_data = {
-            "title": "Updated Title",
-            "status": "in_progress"
-        }
+        update_data = {"title": "Updated Title", "status": "in_progress"}
         response = registered_user.put(f"/tasks/{task_id}", update_data, auth=True)
         assert response.status_code == 200
-        
+
         data = response.json()
         assert data["title"] == "Updated Title"
         assert data["status"] == "in_progress"
-    
+
     def test_delete_task(self, registered_user):
         """Test deleting a task"""
         # Create task
         task_data = {"title": "Task to Delete", "description": "To be deleted"}
         create_response = registered_user.post("/tasks", task_data, auth=True)
         task_id = create_response.json()["id"]
-        
+
         # Delete task
         response = registered_user.delete(f"/tasks/{task_id}", auth=True)
         assert response.status_code == 200
@@ -345,42 +354,43 @@ class TestTaskManagement:
 
 class TestTaskAssignments:
     """Test task assignment functionality"""
-    
+
     def test_create_assignment(self, registered_user):
         """Test creating a task assignment"""
         # Create a task
         task_data = {"title": "Task with Assignment", "description": "Assignment test"}
         task_response = registered_user.post("/tasks", task_data, auth=True)
         task_id = task_response.json()["id"]
-        
+
         # Try to create assignment for the same user (already exists as owner)
         assignment_data = {"assigned_hours": 5.0}
         response = registered_user.post(
-            f"/tasks/{task_id}/assignments",
-            assignment_data,
-            auth=True
+            f"/tasks/{task_id}/assignments", assignment_data, auth=True
         )
         # Should get 409 Conflict because owner is already assigned
         assert response.status_code == 409
-    
+
     def test_list_assignments(self, registered_user):
         """Test listing task assignments"""
         # Create a task with assignment
-        task_data = {"title": "Task for Assignment List", "description": "Assignment list test"}
+        task_data = {
+            "title": "Task for Assignment List",
+            "description": "Assignment list test",
+        }
         task_response = registered_user.post("/tasks", task_data, auth=True)
         task_id = task_response.json()["id"]
-        
+
         # List assignments
         response = registered_user.get(f"/tasks/{task_id}/assignments", auth=True)
         assert response.status_code == 200
-        
+
         data = response.json()
         assert isinstance(data, list)
 
 
 class TestCalendar:
     """Test calendar endpoints"""
-    
+
     def test_get_calendar_tasks(self, registered_user):
         """Test getting calendar view of tasks"""
         # Create some tasks
@@ -390,30 +400,27 @@ class TestCalendar:
                 "description": f"Calendar description {i}",
                 "start_date": "2024-01-10",
                 "due_date": "2024-01-15",
-                "assignee_user_id": registered_user.user_id
+                "assignee_user_id": registered_user.user_id,
             }
             registered_user.post("/tasks", task_data, auth=True)
-        
+
         # Get calendar tasks
-        params = {
-            "start_date": "2024-01-01",
-            "end_date": "2024-01-31"
-        }
+        params = {"start_date": "2024-01-01", "end_date": "2024-01-31"}
         response = registered_user.get("/calendar/tasks", params=params, auth=True)
         assert response.status_code == 200
-        
+
         data = response.json()
         assert isinstance(data, list)
 
 
 class TestAuthorization:
     """Test authorization and permissions"""
-    
+
     def test_unauthorized_access(self, client):
         """Test accessing protected endpoint without token"""
         response = client.get("/tasks", auth=False)
         assert response.status_code == 401
-    
+
     def test_invalid_token(self, client):
         """Test with invalid token"""
         client.set_token("invalid.token.here", "fake-user-id")
@@ -441,7 +448,7 @@ class TestTaskValidation:
         task_data = {
             "title": "Neg Hours",
             "description": "Test description",
-            "estimated_hours": -5
+            "estimated_hours": -5,
         }
         response = registered_user.post("/tasks", task_data, auth=True)
         assert response.status_code == 400
@@ -451,7 +458,7 @@ class TestTaskValidation:
         task_data = {
             "title": "Zero Hours",
             "description": "Test description",
-            "estimated_hours": 0
+            "estimated_hours": 0,
         }
         response = registered_user.post("/tasks", task_data, auth=True)
         assert response.status_code == 201
@@ -461,7 +468,7 @@ class TestTaskValidation:
         task_data = {
             "title": "Valid Task",
             "description": "This task has a proper description",
-            "estimated_hours": 8.5
+            "estimated_hours": 8.5,
         }
         response = registered_user.post("/tasks", task_data, auth=True)
         assert response.status_code == 201
@@ -471,10 +478,7 @@ class TestTaskValidation:
 
     def test_update_task_empty_description(self, registered_user):
         """Updating task description to empty should fail"""
-        task_data = {
-            "title": "Task for Update",
-            "description": "Original description"
-        }
+        task_data = {"title": "Task for Update", "description": "Original description"}
         create_resp = registered_user.post("/tasks", task_data, auth=True)
         task_id = create_resp.json()["id"]
 
@@ -484,10 +488,7 @@ class TestTaskValidation:
 
     def test_update_task_negative_hours(self, registered_user):
         """Updating estimated_hours to negative should fail"""
-        task_data = {
-            "title": "Task for Hour Update",
-            "description": "Some description"
-        }
+        task_data = {"title": "Task for Hour Update", "description": "Some description"}
         create_resp = registered_user.post("/tasks", task_data, auth=True)
         task_id = create_resp.json()["id"]
 
@@ -507,7 +508,7 @@ class TestDateValidation:
             "description": "Project description",
             "start_date": "2025-01-01",
             "due_date": "2025-12-31",
-            "assignee_user_id": registered_user.user_id
+            "assignee_user_id": registered_user.user_id,
         }
         proj_resp = registered_user.post("/tasks", project_data, auth=True)
         assert proj_resp.status_code == 201
@@ -520,7 +521,7 @@ class TestDateValidation:
             "project_root_id": project_id,
             "start_date": "2025-03-01",
             "due_date": "2025-06-30",
-            "assignee_user_id": registered_user.user_id
+            "assignee_user_id": registered_user.user_id,
         }
         response = registered_user.post("/tasks", task_data, auth=True)
         assert response.status_code == 201
@@ -532,7 +533,7 @@ class TestDateValidation:
             "description": "Project description",
             "start_date": "2025-06-01",
             "due_date": "2025-12-31",
-            "assignee_user_id": registered_user.user_id
+            "assignee_user_id": registered_user.user_id,
         }
         proj_resp = registered_user.post("/tasks", project_data, auth=True)
         project_id = proj_resp.json()["id"]
@@ -542,7 +543,7 @@ class TestDateValidation:
             "description": "Task starting too early",
             "project_root_id": project_id,
             "start_date": "2025-01-01",
-            "due_date": "2025-07-01"
+            "due_date": "2025-07-01",
         }
         response = registered_user.post("/tasks", task_data, auth=True)
         assert response.status_code == 400
@@ -554,7 +555,7 @@ class TestDateValidation:
             "description": "Project description",
             "start_date": "2025-01-01",
             "due_date": "2025-06-30",
-            "assignee_user_id": registered_user.user_id
+            "assignee_user_id": registered_user.user_id,
         }
         proj_resp = registered_user.post("/tasks", project_data, auth=True)
         project_id = proj_resp.json()["id"]
@@ -564,7 +565,7 @@ class TestDateValidation:
             "description": "Task ending too late",
             "project_root_id": project_id,
             "start_date": "2025-03-01",
-            "due_date": "2025-12-31"
+            "due_date": "2025-12-31",
         }
         response = registered_user.post("/tasks", task_data, auth=True)
         assert response.status_code == 400
@@ -576,7 +577,7 @@ class TestDateValidation:
             "description": "Project description",
             "start_date": "2025-01-01",
             "due_date": "2025-06-30",
-            "assignee_user_id": registered_user.user_id
+            "assignee_user_id": registered_user.user_id,
         }
         proj_resp = registered_user.post("/tasks", project_data, auth=True)
         project_id = proj_resp.json()["id"]
@@ -587,7 +588,7 @@ class TestDateValidation:
             "project_root_id": project_id,
             "start_date": "2025-02-01",
             "due_date": "2025-05-01",
-            "assignee_user_id": registered_user.user_id
+            "assignee_user_id": registered_user.user_id,
         }
         create_resp = registered_user.post("/tasks", task_data, auth=True)
         assert create_resp.status_code == 201
@@ -603,10 +604,7 @@ class TestSubtasks:
 
     def test_create_subtask(self, registered_user):
         """Create a subtask linked to parent"""
-        parent_data = {
-            "title": "Parent Task",
-            "description": "Parent description"
-        }
+        parent_data = {"title": "Parent Task", "description": "Parent description"}
         parent_resp = registered_user.post("/tasks", parent_data, auth=True)
         assert parent_resp.status_code == 201
         parent_id = parent_resp.json()["id"]
@@ -614,7 +612,7 @@ class TestSubtasks:
         subtask_data = {
             "title": "Subtask",
             "description": "Subtask description",
-            "parent_task_id": parent_id
+            "parent_task_id": parent_id,
         }
         response = registered_user.post("/tasks", subtask_data, auth=True)
         assert response.status_code == 201
@@ -622,10 +620,7 @@ class TestSubtasks:
 
     def test_get_subtasks(self, registered_user):
         """List subtasks of a parent"""
-        parent_data = {
-            "title": "Parent for List",
-            "description": "Parent description"
-        }
+        parent_data = {"title": "Parent for List", "description": "Parent description"}
         parent_resp = registered_user.post("/tasks", parent_data, auth=True)
         parent_id = parent_resp.json()["id"]
 
@@ -633,7 +628,7 @@ class TestSubtasks:
             sub_data = {
                 "title": f"Subtask {i}",
                 "description": f"Sub description {i}",
-                "parent_task_id": parent_id
+                "parent_task_id": parent_id,
             }
             registered_user.post("/tasks", sub_data, auth=True)
 
@@ -654,7 +649,7 @@ class TestSubtasks:
         """Update a subtask"""
         parent_data = {
             "title": "Parent for Update",
-            "description": "Parent description"
+            "description": "Parent description",
         }
         parent_resp = registered_user.post("/tasks", parent_data, auth=True)
         parent_id = parent_resp.json()["id"]
@@ -662,7 +657,7 @@ class TestSubtasks:
         sub_data = {
             "title": "Subtask to Update",
             "description": "Original sub description",
-            "parent_task_id": parent_id
+            "parent_task_id": parent_id,
         }
         sub_resp = registered_user.post("/tasks", sub_data, auth=True)
         sub_id = sub_resp.json()["id"]
@@ -676,7 +671,7 @@ class TestSubtasks:
         """Delete a subtask"""
         parent_data = {
             "title": "Parent for Delete",
-            "description": "Parent description"
+            "description": "Parent description",
         }
         parent_resp = registered_user.post("/tasks", parent_data, auth=True)
         parent_id = parent_resp.json()["id"]
@@ -684,7 +679,7 @@ class TestSubtasks:
         sub_data = {
             "title": "Subtask to Delete",
             "description": "Sub description",
-            "parent_task_id": parent_id
+            "parent_task_id": parent_id,
         }
         sub_resp = registered_user.post("/tasks", sub_data, auth=True)
         sub_id = sub_resp.json()["id"]
@@ -704,7 +699,7 @@ class TestSubtasks:
         sub_data = {
             "title": "Rebindable Subtask",
             "description": "Sub description",
-            "parent_task_id": p1_id
+            "parent_task_id": p1_id,
         }
         sub_resp = registered_user.post("/tasks", sub_data, auth=True)
         sub_id = sub_resp.json()["id"]
@@ -717,11 +712,12 @@ class TestSubtasks:
     def test_invalid_parent_task_id(self, registered_user):
         """Creating subtask with non-existent parent should fail"""
         import uuid
+
         fake_id = str(uuid.uuid4())
         sub_data = {
             "title": "Orphan Subtask",
             "description": "No parent",
-            "parent_task_id": fake_id
+            "parent_task_id": fake_id,
         }
         response = registered_user.post("/tasks", sub_data, auth=True)
         assert response.status_code == 400
@@ -732,18 +728,13 @@ class TestTaskNotes:
 
     def test_create_note(self, registered_user):
         """Create a note on a task"""
-        task_data = {
-            "title": "Task with Notes",
-            "description": "Task for notes test"
-        }
+        task_data = {"title": "Task with Notes", "description": "Task for notes test"}
         task_resp = registered_user.post("/tasks", task_data, auth=True)
         assert task_resp.status_code == 201, task_resp.text
         task_id = task_resp.json()["id"]
 
         note_data = {"content": "This is a test note"}
-        response = registered_user.post(
-            f"/tasks/{task_id}/notes", note_data, auth=True
-        )
+        response = registered_user.post(f"/tasks/{task_id}/notes", note_data, auth=True)
         assert response.status_code == 201
         data = response.json()
         assert data["content"] == "This is a test note"
@@ -753,35 +744,25 @@ class TestTaskNotes:
 
     def test_create_note_empty_content(self, registered_user):
         """Creating a note with empty content should fail"""
-        task_data = {
-            "title": "Task for Empty Note",
-            "description": "Description"
-        }
+        task_data = {"title": "Task for Empty Note", "description": "Description"}
         task_resp = registered_user.post("/tasks", task_data, auth=True)
         assert task_resp.status_code == 201, task_resp.text
         task_id = task_resp.json()["id"]
 
         note_data = {"content": ""}
-        response = registered_user.post(
-            f"/tasks/{task_id}/notes", note_data, auth=True
-        )
+        response = registered_user.post(f"/tasks/{task_id}/notes", note_data, auth=True)
         assert response.status_code == 400
 
     def test_list_notes(self, registered_user):
         """List notes on a task"""
-        task_data = {
-            "title": "Task for Listing Notes",
-            "description": "Description"
-        }
+        task_data = {"title": "Task for Listing Notes", "description": "Description"}
         task_resp = registered_user.post("/tasks", task_data, auth=True)
         assert task_resp.status_code == 201, task_resp.text
         task_id = task_resp.json()["id"]
 
         for i in range(3):
             registered_user.post(
-                f"/tasks/{task_id}/notes",
-                {"content": f"Note {i}"},
-                auth=True
+                f"/tasks/{task_id}/notes", {"content": f"Note {i}"}, auth=True
             )
 
         response = registered_user.get(f"/tasks/{task_id}/notes", auth=True)
@@ -796,18 +777,13 @@ class TestTaskNotes:
 
     def test_update_note(self, registered_user):
         """Update a note"""
-        task_data = {
-            "title": "Task for Note Update",
-            "description": "Description"
-        }
+        task_data = {"title": "Task for Note Update", "description": "Description"}
         task_resp = registered_user.post("/tasks", task_data, auth=True)
         assert task_resp.status_code == 201, task_resp.text
         task_id = task_resp.json()["id"]
 
         note_resp = registered_user.post(
-            f"/tasks/{task_id}/notes",
-            {"content": "Original note"},
-            auth=True
+            f"/tasks/{task_id}/notes", {"content": "Original note"}, auth=True
         )
         note_id = note_resp.json()["id"]
 
@@ -818,18 +794,13 @@ class TestTaskNotes:
 
     def test_delete_note(self, registered_user):
         """Delete a note"""
-        task_data = {
-            "title": "Task for Note Delete",
-            "description": "Description"
-        }
+        task_data = {"title": "Task for Note Delete", "description": "Description"}
         task_resp = registered_user.post("/tasks", task_data, auth=True)
         assert task_resp.status_code == 201, task_resp.text
         task_id = task_resp.json()["id"]
 
         note_resp = registered_user.post(
-            f"/tasks/{task_id}/notes",
-            {"content": "Note to delete"},
-            auth=True
+            f"/tasks/{task_id}/notes", {"content": "Note to delete"}, auth=True
         )
         note_id = note_resp.json()["id"]
 
@@ -855,7 +826,7 @@ class TestUpdateAllFields:
             "estimated_hours": 5,
             "start_date": "2025-01-01",
             "due_date": "2025-06-30",
-            "assignee_user_id": registered_user.user_id
+            "assignee_user_id": registered_user.user_id,
         }
         create_resp = registered_user.post("/tasks", task_data, auth=True)
         assert create_resp.status_code == 201
@@ -868,7 +839,7 @@ class TestUpdateAllFields:
             "status": "in_progress",
             "estimated_hours": 20,
             "start_date": "2025-02-01",
-            "due_date": "2025-05-01"
+            "due_date": "2025-05-01",
         }
         response = registered_user.put(f"/tasks/{task_id}", update_data, auth=True)
         assert response.status_code == 200
@@ -885,22 +856,19 @@ class TestUpdateAllFields:
             "description": "Project desc",
             "start_date": "2025-01-01",
             "due_date": "2025-12-31",
-            "assignee_user_id": registered_user.user_id
+            "assignee_user_id": registered_user.user_id,
         }
         proj_resp = registered_user.post("/tasks", project_data, auth=True)
         proj_id = proj_resp.json()["id"]
 
-        task_data = {
-            "title": "Unassigned Task",
-            "description": "Task without project"
-        }
+        task_data = {"title": "Unassigned Task", "description": "Task without project"}
         task_resp = registered_user.post("/tasks", task_data, auth=True)
         task_id = task_resp.json()["id"]
 
         update_data = {
             "project_root_id": proj_id,
             "start_date": "2025-03-01",
-            "due_date": "2025-06-01"
+            "due_date": "2025-06-01",
         }
         response = registered_user.put(f"/tasks/{task_id}", update_data, auth=True)
         assert response.status_code == 200
@@ -908,17 +876,14 @@ class TestUpdateAllFields:
 
     def test_set_parent_task_id_to_null(self, registered_user):
         """Detach subtask from parent via PUT"""
-        parent_data = {
-            "title": "Parent for Detach",
-            "description": "Parent desc"
-        }
+        parent_data = {"title": "Parent for Detach", "description": "Parent desc"}
         parent_resp = registered_user.post("/tasks", parent_data, auth=True)
         parent_id = parent_resp.json()["id"]
 
         sub_data = {
             "title": "Subtask for Detach",
             "description": "Sub desc",
-            "parent_task_id": parent_id
+            "parent_task_id": parent_id,
         }
         sub_resp = registered_user.post("/tasks", sub_data, auth=True)
         sub_id = sub_resp.json()["id"]
@@ -930,10 +895,7 @@ class TestUpdateAllFields:
 
     def test_update_self_parent_rejected(self, registered_user):
         """Setting task as its own parent should fail"""
-        task_data = {
-            "title": "Self Parent",
-            "description": "Test self reference"
-        }
+        task_data = {"title": "Self Parent", "description": "Test self reference"}
         create_resp = registered_user.post("/tasks", task_data, auth=True)
         task_id = create_resp.json()["id"]
 
@@ -950,7 +912,7 @@ class TestTaskTimeAndAvailability:
             "title": "Timed task without assignee",
             "description": "Should fail",
             "start_date": "2026-03-14",
-            "due_date": "2026-03-16"
+            "due_date": "2026-03-16",
         }
         response = registered_user.post("/tasks", task_data, auth=True)
         assert response.status_code == 400
@@ -961,7 +923,7 @@ class TestTaskTimeAndAvailability:
             "description": "Auto in progress",
             "start_date": "2026-03-14",
             "due_date": "2026-03-16",
-            "assignee_user_id": registered_user.user_id
+            "assignee_user_id": registered_user.user_id,
         }
         response = registered_user.post("/tasks", task_data, auth=True)
         assert response.status_code == 201
@@ -973,12 +935,9 @@ class TestTaskTimeAndAvailability:
             "description": "Timed",
             "start_date": "2026-03-20",
             "due_date": "2026-03-21",
-            "assignee_user_id": registered_user.user_id
+            "assignee_user_id": registered_user.user_id,
         }
-        plain = {
-            "title": "Untimed for filter",
-            "description": "No dates"
-        }
+        plain = {"title": "Untimed for filter", "description": "No dates"}
         r1 = registered_user.post("/tasks", timed, auth=True)
         r2 = registered_user.post("/tasks", plain, auth=True)
         assert r1.status_code == 201
@@ -986,12 +945,16 @@ class TestTaskTimeAndAvailability:
         timed_id = r1.json()["id"]
         plain_id = r2.json()["id"]
 
-        with_time = registered_user.get("/tasks", params={"has_time": "true"}, auth=True)
+        with_time = registered_user.get(
+            "/tasks", params={"has_time": "true"}, auth=True
+        )
         assert with_time.status_code == 200
         ids_with_time = {x.get("id") for x in with_time.json()}
         assert timed_id in ids_with_time
 
-        without_time = registered_user.get("/tasks", params={"has_time": "false"}, auth=True)
+        without_time = registered_user.get(
+            "/tasks", params={"has_time": "false"}, auth=True
+        )
         assert without_time.status_code == 200
         ids_without_time = {x.get("id") for x in without_time.json()}
         assert plain_id in ids_without_time
@@ -1000,7 +963,7 @@ class TestTaskTimeAndAvailability:
         payload = {
             "user_id": registered_user.user_id,
             "start_ts": "2026-03-14T09:00:00Z",
-            "end_ts": "2026-03-14T18:00:00Z"
+            "end_ts": "2026-03-14T18:00:00Z",
         }
         response = registered_user.post(
             "/tasks/availability/calculate", payload, auth=True
@@ -1018,7 +981,7 @@ class TestTaskTimeAndAvailability:
             "description": "Candidates",
             "start_date": "2026-03-18",
             "due_date": "2026-03-19",
-            "assignee_user_id": registered_user.user_id
+            "assignee_user_id": registered_user.user_id,
         }
         create_resp = registered_user.post("/tasks", task_data, auth=True)
         assert create_resp.status_code == 201
@@ -1027,7 +990,7 @@ class TestTaskTimeAndAvailability:
         payload = {
             "required_skills": ["backend", "sql"],
             "start_ts": "2026-03-18T09:00:00Z",
-            "end_ts": "2026-03-19T18:00:00Z"
+            "end_ts": "2026-03-19T18:00:00Z",
         }
         response = registered_user.post(
             f"/tasks/{task_id}/candidate-assignees", payload, auth=True
@@ -1038,10 +1001,7 @@ class TestTaskTimeAndAvailability:
         assert isinstance(data["candidates"], list)
 
     def test_user_workload_endpoint(self, registered_user):
-        params = {
-            "start_ts": "2026-03-14T00:00:00Z",
-            "end_ts": "2026-03-21T00:00:00Z"
-        }
+        params = {"start_ts": "2026-03-14T00:00:00Z", "end_ts": "2026-03-21T00:00:00Z"}
         response = registered_user.get(
             f"/users/{registered_user.user_id}/workload", params=params, auth=True
         )
@@ -1251,6 +1211,7 @@ class TestAuthValidation:
 
     def _base_payload(self) -> dict:
         import uuid
+
         return {
             "email": f"edge_{uuid.uuid4().hex[:8]}@example.com",
             "password": "SecurePass123!",
@@ -1363,6 +1324,7 @@ class TestAuthValidation:
     def test_login_wrong_password(self, client):
         """Login with wrong password must return 401"""
         import uuid
+
         email = f"wrongpw_{uuid.uuid4().hex[:8]}@example.com"
         reg_payload = {
             "email": email,
@@ -1373,7 +1335,9 @@ class TestAuthValidation:
         r = client.post("/auth/register", reg_payload)
         assert r.status_code == 201
 
-        response = client.post("/auth/login", {"email": email, "password": "WrongPass!"})
+        response = client.post(
+            "/auth/login", {"email": email, "password": "WrongPass!"}
+        )
         assert response.status_code == 401
 
     def test_login_nonexistent_user(self, client):
@@ -1406,8 +1370,12 @@ class TestWorkSchedule:
     def _ws_payload(self, *days):
         """Build a valid work-schedule payload for given day_of_week values (1-7)."""
         return [
-            {"day_of_week": d, "is_working_day": True,
-             "start_time": "09:00", "end_time": "17:00"}
+            {
+                "day_of_week": d,
+                "is_working_day": True,
+                "start_time": "09:00",
+                "end_time": "17:00",
+            }
             for d in days
         ]
 
@@ -1441,8 +1409,14 @@ class TestWorkSchedule:
 
     def test_post_work_schedule_day_out_of_range_low(self, registered_user):
         """POST with day_of_week=0 must be rejected (valid range is 1-7)"""
-        payload = [{"day_of_week": 0, "is_working_day": True,
-                    "start_time": "09:00", "end_time": "17:00"}]
+        payload = [
+            {
+                "day_of_week": 0,
+                "is_working_day": True,
+                "start_time": "09:00",
+                "end_time": "17:00",
+            }
+        ]
         response = registered_user.post(
             f"/users/{registered_user.user_id}/work-schedule", payload, auth=True
         )
@@ -1450,8 +1424,14 @@ class TestWorkSchedule:
 
     def test_post_work_schedule_day_out_of_range_high(self, registered_user):
         """POST with day_of_week=8 must be rejected"""
-        payload = [{"day_of_week": 8, "is_working_day": True,
-                    "start_time": "09:00", "end_time": "17:00"}]
+        payload = [
+            {
+                "day_of_week": 8,
+                "is_working_day": True,
+                "start_time": "09:00",
+                "end_time": "17:00",
+            }
+        ]
         response = registered_user.post(
             f"/users/{registered_user.user_id}/work-schedule", payload, auth=True
         )
@@ -1459,8 +1439,14 @@ class TestWorkSchedule:
 
     def test_post_work_schedule_end_before_start(self, registered_user):
         """POST where end_time < start_time must be rejected"""
-        payload = [{"day_of_week": 3, "is_working_day": True,
-                    "start_time": "17:00", "end_time": "09:00"}]
+        payload = [
+            {
+                "day_of_week": 3,
+                "is_working_day": True,
+                "start_time": "17:00",
+                "end_time": "09:00",
+            }
+        ]
         response = registered_user.post(
             f"/users/{registered_user.user_id}/work-schedule", payload, auth=True
         )
@@ -1469,8 +1455,15 @@ class TestWorkSchedule:
     def test_post_work_schedule_unauthenticated(self, client):
         """POST work-schedule without token must fail with 401"""
         import uuid
-        payload = [{"day_of_week": 1, "is_working_day": True,
-                    "start_time": "09:00", "end_time": "17:00"}]
+
+        payload = [
+            {
+                "day_of_week": 1,
+                "is_working_day": True,
+                "start_time": "09:00",
+                "end_time": "17:00",
+            }
+        ]
         response = client.post(
             f"/users/{uuid.uuid4()}/work-schedule", payload, auth=False
         )
@@ -1486,10 +1479,16 @@ class TestWorkSchedule:
 
     def test_post_work_schedule_non_working_day(self, registered_user):
         """POST with is_working_day=false is accepted (no times needed)"""
-        payload = [{"day_of_week": 6, "is_working_day": False},
-                   {"day_of_week": 7, "is_working_day": False},
-                   {"day_of_week": 1, "is_working_day": True,
-                    "start_time": "09:00", "end_time": "17:00"}]
+        payload = [
+            {"day_of_week": 6, "is_working_day": False},
+            {"day_of_week": 7, "is_working_day": False},
+            {
+                "day_of_week": 1,
+                "is_working_day": True,
+                "start_time": "09:00",
+                "end_time": "17:00",
+            },
+        ]
         response = registered_user.post(
             f"/users/{registered_user.user_id}/work-schedule", payload, auth=True
         )
@@ -1512,9 +1511,7 @@ class TestUsers:
 
     def test_get_user_by_id(self, registered_user):
         """GET /users/{id} for existing user returns profile"""
-        response = registered_user.get(
-            f"/users/{registered_user.user_id}", auth=True
-        )
+        response = registered_user.get(f"/users/{registered_user.user_id}", auth=True)
         assert response.status_code == 200
         data = response.json()
         assert data["id"] == registered_user.user_id
@@ -1524,6 +1521,7 @@ class TestUsers:
     def test_get_nonexistent_user(self, registered_user):
         """GET /users/{id} for unknown UUID returns 404"""
         import uuid
+
         response = registered_user.get(f"/users/{uuid.uuid4()}", auth=True)
         assert response.status_code == 404
 
@@ -1535,6 +1533,7 @@ class TestUsers:
     def test_get_user_unauthenticated(self, client):
         """GET /users/{id} is public — returns 200 or 404 (not 401)"""
         import uuid
+
         response = client.get(f"/users/{uuid.uuid4()}", auth=False)
         assert response.status_code in (200, 404)
 
@@ -1545,7 +1544,9 @@ class TestUsers:
         # Use the unique local part before '@' — guaranteed unique across test runs
         unique_prefix = email.split("@")[0]
 
-        response = registered_user.get("/users", params={"search": unique_prefix}, auth=True)
+        response = registered_user.get(
+            "/users", params={"search": unique_prefix}, auth=True
+        )
         assert response.status_code == 200
         ids = [u["id"] for u in response.json()]
         assert registered_user.user_id in ids
@@ -1557,12 +1558,14 @@ class TestTaskEdgeCases:
     def test_get_nonexistent_task(self, registered_user):
         """GET /tasks/{id} for unknown UUID returns 404"""
         import uuid
+
         response = registered_user.get(f"/tasks/{uuid.uuid4()}", auth=True)
         assert response.status_code == 404
 
     def test_update_nonexistent_task(self, registered_user):
         """PUT /tasks/{id} for unknown UUID returns 404"""
         import uuid
+
         response = registered_user.put(
             f"/tasks/{uuid.uuid4()}", {"title": "Ghost"}, auth=True
         )
@@ -1571,6 +1574,7 @@ class TestTaskEdgeCases:
     def test_delete_nonexistent_task(self, registered_user):
         """DELETE /tasks/{id} for unknown UUID returns 404"""
         import uuid
+
         response = registered_user.delete(f"/tasks/{uuid.uuid4()}", auth=True)
         assert response.status_code == 404
 
@@ -1713,6 +1717,7 @@ class TestAssignmentEdgeCases:
 
     def _make_second_user(self, client: "APIClient") -> "APIClient":
         import uuid
+
         email = f"assign2_{uuid.uuid4().hex[:8]}@example.com"
         payload = {
             "email": email,
@@ -1751,15 +1756,15 @@ class TestAssignmentEdgeCases:
     def test_list_assignments_nonexistent_task(self, registered_user):
         """GET /tasks/{id}/assignments for unknown task returns 403 or 404"""
         import uuid
-        response = registered_user.get(
-            f"/tasks/{uuid.uuid4()}/assignments", auth=True
-        )
+
+        response = registered_user.get(f"/tasks/{uuid.uuid4()}/assignments", auth=True)
         # Backend checks membership before existence, so 403 is also valid
         assert response.status_code in (403, 404)
 
     def test_assign_to_nonexistent_task(self, registered_user):
         """POST /tasks/{id}/assignments for unknown task returns 404"""
         import uuid
+
         response = registered_user.post(
             f"/tasks/{uuid.uuid4()}/assignments",
             {"assigned_hours": 2.0},
@@ -1782,9 +1787,7 @@ class TestNotificationSettings:
 
     def test_get_returns_defaults(self, registered_user):
         """Fresh account: GET returns defaults (enabled=true, days={1,3,7})"""
-        response = registered_user.get(
-            self._url(registered_user.user_id), auth=True
-        )
+        response = registered_user.get(self._url(registered_user.user_id), auth=True)
         assert response.status_code == 200, response.text
         data = response.json()
         assert "deadline_reminders_enabled" in data
@@ -1812,12 +1815,8 @@ class TestNotificationSettings:
             "reminder_days_before": [3, 14],
             "reminder_hours_before": [1],
         }
-        registered_user.put(
-            self._url(registered_user.user_id), payload, auth=True
-        )
-        response = registered_user.get(
-            self._url(registered_user.user_id), auth=True
-        )
+        registered_user.put(self._url(registered_user.user_id), payload, auth=True)
+        response = registered_user.get(self._url(registered_user.user_id), auth=True)
         assert response.status_code == 200, response.text
         data = response.json()
         assert data["deadline_reminders_enabled"] is False
@@ -1836,9 +1835,7 @@ class TestNotificationSettings:
         )
         assert put_resp.status_code in (200, 204), put_resp.text
 
-        get_resp = registered_user.get(
-            self._url(registered_user.user_id), auth=True
-        )
+        get_resp = registered_user.get(self._url(registered_user.user_id), auth=True)
         assert get_resp.status_code == 200
         assert get_resp.json()["deadline_reminders_enabled"] is False
 
@@ -1861,24 +1858,22 @@ class TestNotificationSettings:
             "reminder_days_before": [1, 3],
             "reminder_hours_before": [6],
         }
-        r1 = registered_user.put(
-            self._url(registered_user.user_id), payload, auth=True
-        )
-        r2 = registered_user.put(
-            self._url(registered_user.user_id), payload, auth=True
-        )
+        r1 = registered_user.put(self._url(registered_user.user_id), payload, auth=True)
+        r2 = registered_user.put(self._url(registered_user.user_id), payload, auth=True)
         assert r1.status_code in (200, 204), r1.text
         assert r2.status_code in (200, 204), r2.text
 
     def test_get_unauthenticated(self, client):
         """GET without token must return 401"""
         import uuid
+
         response = client.get(self._url(str(uuid.uuid4())), auth=False)
         assert response.status_code == 401
 
     def test_put_unauthenticated(self, client):
         """PUT without token must return 401"""
         import uuid
+
         payload = {
             "deadline_reminders_enabled": True,
             "reminder_days_before": [1],
@@ -1890,6 +1885,7 @@ class TestNotificationSettings:
     def test_get_other_user_forbidden(self, registered_user, client):
         """User A cannot read User B's notification settings"""
         import uuid
+
         other_email = f"other_{uuid.uuid4().hex[:8]}@example.com"
         other_payload = {
             "email": other_email,
@@ -1912,6 +1908,7 @@ class TestNotificationSettings:
     def test_put_other_user_forbidden(self, registered_user, client):
         """User A cannot overwrite User B's notification settings"""
         import uuid
+
         other_email = f"other2_{uuid.uuid4().hex[:8]}@example.com"
         other_payload = {
             "email": other_email,
@@ -1954,6 +1951,7 @@ class TestGetTaskById:
 
     def test_get_task_by_id_not_found(self, registered_user):
         import uuid
+
         response = registered_user.get(f"/tasks/{uuid.uuid4()}", auth=True)
         assert response.status_code in (403, 404)
 
@@ -1972,6 +1970,7 @@ class TestApplyApproveWorkflow:
     @staticmethod
     def _make_user(client: "APIClient", prefix: str) -> "APIClient":
         import uuid
+
         email = f"{prefix}_{uuid.uuid4().hex[:8]}@example.com"
         payload = {
             "email": email,
@@ -2021,7 +2020,9 @@ class TestApplyApproveWorkflow:
 
         applicant.post(f"/projects/{project_id}/apply", {}, auth=True)
 
-        apps_resp = registered_user.get(f"/projects/{project_id}/applications", auth=True)
+        apps_resp = registered_user.get(
+            f"/projects/{project_id}/applications", auth=True
+        )
         assert apps_resp.status_code == 200
         apps = apps_resp.json()
         assert isinstance(apps, list)
@@ -2045,7 +2046,9 @@ class TestApplyApproveWorkflow:
 
         applicant.post(f"/projects/{project_id}/apply", {}, auth=True)
 
-        apps_resp = registered_user.get(f"/projects/{project_id}/applications", auth=True)
+        apps_resp = registered_user.get(
+            f"/projects/{project_id}/applications", auth=True
+        )
         assert apps_resp.status_code == 200
         apps = apps_resp.json()
         assert len(apps) >= 1
@@ -2057,7 +2060,9 @@ class TestApplyApproveWorkflow:
         assert approve_resp.status_code in (200, 201, 204)
 
         # Applicant should now appear in assignments
-        members_resp = registered_user.get(f"/tasks/{project_id}/assignments", auth=True)
+        members_resp = registered_user.get(
+            f"/tasks/{project_id}/assignments", auth=True
+        )
         assert members_resp.status_code == 200
         member_ids = [m.get("user_id") for m in members_resp.json()]
         assert applicant.user_id in member_ids
@@ -2079,7 +2084,9 @@ class TestApplyApproveWorkflow:
 
         applicant.post(f"/projects/{project_id}/apply", {}, auth=True)
 
-        apps_resp = registered_user.get(f"/projects/{project_id}/applications", auth=True)
+        apps_resp = registered_user.get(
+            f"/projects/{project_id}/applications", auth=True
+        )
         apps = apps_resp.json()
         app_id = apps[0].get("id") or apps[0].get("application_id")
 
@@ -2088,7 +2095,9 @@ class TestApplyApproveWorkflow:
         )
         assert reject_resp.status_code in (200, 201, 204)
 
-        members_resp = registered_user.get(f"/tasks/{project_id}/assignments", auth=True)
+        members_resp = registered_user.get(
+            f"/tasks/{project_id}/assignments", auth=True
+        )
         member_ids = [m.get("user_id") for m in members_resp.json()]
         assert applicant.user_id not in member_ids
 
@@ -2116,6 +2125,7 @@ class TestCrossProjectScheduling:
     @staticmethod
     def _make_user(client: "APIClient", prefix: str) -> "APIClient":
         import uuid
+
         email = f"{prefix}_{uuid.uuid4().hex[:8]}@example.com"
         payload = {
             "email": email,
@@ -2303,7 +2313,11 @@ class TestCrossProjectScheduling:
         # Old range should show busy_hours
         avail_old = registered_user.post(
             "/tasks/availability/calculate",
-            {"user_id": worker.user_id, "start_ts": "2026-08-01T00:00:00Z", "end_ts": "2026-08-05T23:59:59Z"},
+            {
+                "user_id": worker.user_id,
+                "start_ts": "2026-08-01T00:00:00Z",
+                "end_ts": "2026-08-05T23:59:59Z",
+            },
             auth=True,
         )
         assert avail_old.json()["busy_hours"] > 0
@@ -2319,7 +2333,11 @@ class TestCrossProjectScheduling:
         # Old range should now show 0 busy_hours
         avail_old_after = registered_user.post(
             "/tasks/availability/calculate",
-            {"user_id": worker.user_id, "start_ts": "2026-08-01T00:00:00Z", "end_ts": "2026-08-05T23:59:59Z"},
+            {
+                "user_id": worker.user_id,
+                "start_ts": "2026-08-01T00:00:00Z",
+                "end_ts": "2026-08-05T23:59:59Z",
+            },
             auth=True,
         )
         assert avail_old_after.json()["busy_hours"] == 0.0
@@ -2327,7 +2345,11 @@ class TestCrossProjectScheduling:
         # New range should show busy_hours
         avail_new = registered_user.post(
             "/tasks/availability/calculate",
-            {"user_id": worker.user_id, "start_ts": "2026-09-01T00:00:00Z", "end_ts": "2026-09-05T23:59:59Z"},
+            {
+                "user_id": worker.user_id,
+                "start_ts": "2026-09-01T00:00:00Z",
+                "end_ts": "2026-09-05T23:59:59Z",
+            },
             auth=True,
         )
         assert avail_new.json()["busy_hours"] > 0
@@ -2356,7 +2378,10 @@ class TestCrossProjectScheduling:
         # Registered user (owner) reads worker's workload
         workload_resp = registered_user.get(
             f"/users/{worker.user_id}/workload",
-            params={"start_ts": "2026-09-01T00:00:00Z", "end_ts": "2026-09-30T23:59:59Z"},
+            params={
+                "start_ts": "2026-09-01T00:00:00Z",
+                "end_ts": "2026-09-30T23:59:59Z",
+            },
             auth=True,
         )
         assert workload_resp.status_code == 200, (
@@ -2372,7 +2397,10 @@ class TestCrossProjectScheduling:
 
         response = registered_user.get(
             f"/users/{worker.user_id}/workload",
-            params={"start_ts": "2026-09-01T00:00:00Z", "end_ts": "2026-09-30T23:59:59Z"},
+            params={
+                "start_ts": "2026-09-01T00:00:00Z",
+                "end_ts": "2026-09-30T23:59:59Z",
+            },
             auth=True,
         )
         # No shared project → 403
@@ -2385,6 +2413,7 @@ class TestRoleChangeWorkflow:
     @staticmethod
     def _make_user(client: "APIClient", prefix: str) -> "APIClient":
         import uuid
+
         email = f"{prefix}_{uuid.uuid4().hex[:8]}@example.com"
         payload = {
             "email": email,
@@ -2442,7 +2471,10 @@ class TestRoleChangeWorkflow:
 
     def test_owner_cannot_be_removed(self, registered_user, client):
         """Attempting to remove project owner returns an appropriate error or ignores"""
-        task_data = {"title": "Owner Keep Project", "description": "Should not remove owner"}
+        task_data = {
+            "title": "Owner Keep Project",
+            "description": "Should not remove owner",
+        }
         task_resp = registered_user.post("/tasks", task_data, auth=True)
         task_id = task_resp.json()["id"]
 
@@ -2483,6 +2515,7 @@ class TestSchedulingConflictDetection:
     @staticmethod
     def _make_user(client: "APIClient", prefix: str) -> "APIClient":
         import uuid
+
         email = f"{prefix}_{uuid.uuid4().hex[:8]}@example.com"
         payload = {
             "email": email,
@@ -2524,7 +2557,9 @@ class TestSchedulingConflictDetection:
             auth=True,
         )
         assert r1.status_code == 201
-        assert "scheduling_conflicts" not in r1.json(), "First assignment should have no conflicts"
+        assert "scheduling_conflicts" not in r1.json(), (
+            "First assignment should have no conflicts"
+        )
 
         # Task 2: July 5–15 — overlaps with task 1
         t2_resp = registered_user.post(
@@ -2548,7 +2583,9 @@ class TestSchedulingConflictDetection:
             {"user_id": worker.user_id, "assigned_hours": 40.0},
             auth=True,
         )
-        assert r2.status_code == 201, f"Assignment should succeed (warning, not block): {r2.text}"
+        assert r2.status_code == 201, (
+            f"Assignment should succeed (warning, not block): {r2.text}"
+        )
         body = r2.json()
         assert "scheduling_conflicts" in body, (
             f"Expected scheduling_conflicts in response when overlap exists, got: {body}"
