@@ -45,6 +45,9 @@ RUN apt-get update && apt-get install -y \
     librdkafka1 \
     librdkafka++1 \
     libc-ares2 \
+    libmariadb3 \
+    libsqlite3-0 \
+    libhiredis0.14 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
