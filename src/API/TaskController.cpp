@@ -367,23 +367,53 @@ void TaskController::createTask(
         (j.isMember("start_date") && j["start_date"].isString()) ? j["start_date"].asString() : "";
     const std::string dueDateStr =
         (j.isMember("due_date") && j["due_date"].isString()) ? j["due_date"].asString() : "";
+    const bool isPrivate =
+        (j.isMember("is_private") && j["is_private"].isBool())
+        ? j["is_private"].asBool() : false;
+
+    if (assigneeUserId.has_value() && !startDateStr.empty() && estimatedHours > 0) {
+      auto capRes = trans->execSqlSync(
+        R"sql(
+          SELECT COALESCE(SUM(t.estimated_hours), 0) AS total
+          FROM task t
+          JOIN task_role_assignment ra ON ra.task_id = t.id
+          WHERE ra.user_id = $1::uuid
+            AND ra.role    = 'executor'
+            AND t.start_date >= date_trunc('week', $2::date)
+            AND t.start_date <  date_trunc('week', $2::date) + INTERVAL '7 days'
+        )sql",
+        *assigneeUserId, startDateStr);
+      const double currentHours = capRes.empty() ? 0.0
+          : capRes[0]["total"].as<double>();
+      if (currentHours + estimatedHours > 40.0) {
+        Json::Value errJ;
+        errJ["error"]   = "weekly_limit_exceeded";
+        errJ["current"] = currentHours;
+        errJ["limit"]   = 40;
+        auto resp = HttpResponse::newHttpJsonResponse(errJ);
+        resp->setStatusCode(k422UnprocessableEntity);
+        return callback(resp);
+      }
+    }
 
     // Use raw INSERT ... RETURNING id to reliably get the new task ID
     auto insertRes = trans->execSqlSync(
         R"sql(
         INSERT INTO "task" (title, description, priority, status, estimated_hours,
-                            created_by, parent_task_id, project_root_id, start_date, due_date, created_at, updated_at)
+                            created_by, parent_task_id, project_root_id, start_date, due_date, is_private, created_at, updated_at)
         VALUES ($1, $2, $3::task_priority_enum, $4::task_status_enum, $5, $6::uuid,
                 NULLIF($7, '')::uuid,
                 NULLIF($8, '')::uuid,
                 NULLIF($9, '')::date,
                 NULLIF($10, '')::date,
+                $11::boolean,
                 NOW(), NOW())
         RETURNING id
         )sql",
         title, description, priority, statusVal,
         std::to_string(estimatedHours), userId,
-        parentIdStr, projectRootIdStr, startDateStr, dueDateStr);
+        parentIdStr, projectRootIdStr, startDateStr, dueDateStr,
+        isPrivate ? std::string("true") : std::string("false"));
 
     if (insertRes.empty()) {
       auto resp = HttpResponse::newHttpJsonResponse(Json::Value("Failed to create task"));
@@ -546,6 +576,7 @@ void TaskController::getTasks(
            t.due_date::text AS due_date,
            t.project_root_id AS project_root_id,
            t.created_by AS created_by,
+           t.is_private AS is_private,
            t.created_at::text AS created_at,
            t.updated_at::text AS updated_at,
            ta.assigned_hours AS assigned_hours,
@@ -609,6 +640,9 @@ void TaskController::getTasks(
           row["created_by"].isNull()
               ? Json::Value()
               : Json::Value(row["created_by"].as<std::string>());
+      item["is_private"] = row["is_private"].isNull()
+          ? Json::Value(false)
+          : Json::Value(row["is_private"].as<bool>());
       item["created_at"] =
           row["created_at"].isNull()
               ? Json::Value()
@@ -661,6 +695,20 @@ void TaskController::getTasks(
         scheduleArr.append(s);
       }
       item["schedule"] = scheduleArr;
+
+      {
+        const bool taskIsPrivate = item.isMember("is_private") && item["is_private"].asBool();
+        const bool isOwner = item.isMember("created_by") && !item["created_by"].isNull() &&
+                             item["created_by"].asString() == userId;
+        if (taskIsPrivate && !isOwner) {
+          Json::Value masked;
+          masked["id"]         = item["id"];
+          masked["start_date"] = item["start_date"];
+          masked["due_date"]   = item["due_date"];
+          masked["is_private"] = true;
+          item = masked;
+        }
+      }
 
       out.append(item);
     }
