@@ -1,85 +1,50 @@
-FROM ubuntu:22.04 AS builder
+# Stage 1: build — Drogon already compiled in base image
+FROM drogonframework/drogon:latest AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Only missing deps: rdkafka, bcrypt, jwt-cpp
 RUN apt-get update && apt-get install -y \
-    build-essential \
-    cmake \
-    git \
-    g++ \
-    postgresql-client \
-    libpq-dev \
-    libjsoncpp-dev \
-    libssl-dev \
-    uuid-dev \
-    zlib1g-dev \
-    libyaml-cpp0.7 \
-    pkg-config \
     librdkafka-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Drogon framework
-RUN git clone https://github.com/drogonframework/drogon.git /tmp/drogon && \
-    cd /tmp/drogon && \
-    git checkout v1.9.8 && \
-    git submodule update --init --recursive && \
-    mkdir build && cd build && \
-    cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF && \
-    make -j$(nproc) && \
-    make install && \
-    ldconfig && \
-    rm -rf /tmp/drogon
-
-# Install bcrypt library (builds source)
 RUN git clone https://github.com/hilch/Bcrypt.cpp.git /tmp/bcrypt && \
-    cd /tmp/bcrypt && \
-    mkdir build && cd build && \
-    cmake .. && \
-    make && \
+    cd /tmp/bcrypt && mkdir build && cd build && \
+    cmake .. && make && \
     cp libbcrypt.a /usr/local/lib/ && \
     cp ../include/bcrypt.h /usr/local/include/ && \
-    ldconfig && \
-    rm -rf /tmp/bcrypt
+    ldconfig && rm -rf /tmp/bcrypt
 
-# Install jwt-cpp library (header-only)
 RUN git clone https://github.com/Thalhammer/jwt-cpp.git /tmp/jwt-cpp && \
-    cd /tmp/jwt-cpp && \
-    git checkout v0.7.0 && \
-    mkdir -p /usr/local/include && \
+    cd /tmp/jwt-cpp && git checkout v0.7.0 && \
     cp -r include/jwt-cpp /usr/local/include/ && \
-    cd /tmp && \
-    git clone https://github.com/kazuho/picojson.git && \
+    git clone https://github.com/kazuho/picojson.git /tmp/picojson && \
     mkdir -p /usr/local/include/picojson && \
-    cp picojson/picojson.h /usr/local/include/picojson/ && \
+    cp /tmp/picojson/picojson.h /usr/local/include/picojson/ && \
     rm -rf /tmp/jwt-cpp /tmp/picojson
 
 WORKDIR /build
-
 COPY . .
 
-RUN mkdir -p build && \
-    cd build && \
-    cmake .. && \
+RUN mkdir -p build && cd build && \
+    cmake .. -DCMAKE_BUILD_TYPE=Release && \
     make -j$(nproc)
 
-FROM ubuntu:22.04
-
-ENV DEBIAN_FRONTEND=noninteractive
+# Stage 2: minimal runtime
+FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y \
     libpq5 \
     libjsoncpp25 \
     libssl3 \
     uuid-runtime \
-    libyaml-cpp-dev \
+    libyaml-cpp0.7 \
     librdkafka1 \
     librdkafka++1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-
 COPY --from=builder /build/build/project-calendar /app/
 
 EXPOSE 8080
-
 CMD ["./project-calendar"]
