@@ -90,6 +90,8 @@ jobs:
           exit 1
 
       - name: Run integration tests
+        env:
+          TEST_BASE_URL: http://localhost:8081
         run: |
           cd tests
           python -m pytest test_api.py -v --tb=short
