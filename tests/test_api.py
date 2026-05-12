@@ -132,7 +132,21 @@ def registered_user(client):
     assert "user" in data
 
     client.set_token(data["token"], data["user"]["id"])
-    return client
+
+    yield client
+
+    # Teardown: удаляем все задачи, созданные тестовым пользователем.
+    # Удаление корневых задач каскадно удаляет подзадачи.
+    try:
+        tasks_resp = client.get("/tasks", auth=True)
+        if tasks_resp.status_code == 200:
+            tasks = tasks_resp.json()
+            if isinstance(tasks, list):
+                roots = [t for t in tasks if not t.get("parent_task_id")]
+                for t in roots:
+                    client.delete(f"/tasks/{t['id']}", auth=True)
+    except Exception:
+        pass
 
 
 class TestAuthentication:
