@@ -15,6 +15,9 @@ class UsersController : public drogon::HttpController<UsersController> {
 
   ADD_METHOD_TO(UsersController::searchUsers, "/api/users", Get);
 
+  ADD_METHOD_TO(UsersController::getMySubordinates,
+                "/api/users/my-subordinates", Get, "AuthFilter");
+
   ADD_METHOD_TO(UsersController::getUserProfile, "/api/users/{id}", Get);
 
   ADD_METHOD_TO(UsersController::getUserWorkload, "/api/users/{id}/workload",
@@ -25,6 +28,12 @@ class UsersController : public drogon::HttpController<UsersController> {
 
   ADD_METHOD_TO(UsersController::setNotificationSettings,
                 "/api/users/{id}/notification-settings", Put, "AuthFilter");
+
+  ADD_METHOD_TO(UsersController::isSubordinate,
+                "/api/users/{id}/is-subordinate", Get, "AuthFilter");
+
+  ADD_METHOD_TO(UsersController::getUserAvailability,
+                "/api/users/{id}/availability", Get, "AuthFilter");
 
   METHOD_LIST_END
 
@@ -48,4 +57,13 @@ class UsersController : public drogon::HttpController<UsersController> {
 
   void setNotificationSettings(const HttpRequestPtr& req,
                                 std::function<void(const HttpResponsePtr&)>&& callback);
+
+  void getMySubordinates(const HttpRequestPtr& req,
+                         std::function<void(const HttpResponsePtr&)>&& callback);
+
+  void isSubordinate(const HttpRequestPtr& req,
+                     std::function<void(const HttpResponsePtr&)>&& callback);
+
+  void getUserAvailability(const HttpRequestPtr& req,
+                           std::function<void(const HttpResponsePtr&)>&& callback);
 };

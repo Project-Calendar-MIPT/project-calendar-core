@@ -4,6 +4,10 @@
 #include <json/json.h>
 #include <trantor/utils/Logger.h>
 
+#include <chrono>
+#include <cstdio>
+#include <ctime>
+#include <map>
 #include <regex>
 #include <set>
 
@@ -742,6 +746,199 @@ void UsersController::searchUsers(
     resp->setStatusCode(k500InternalServerError);
     callback(resp);
     return;
+  }
+}
+
+void UsersController::getMySubordinates(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  auto attrsPtr = req->attributes();
+  if (!attrsPtr || !attrsPtr->find("user_id")) {
+    auto r = HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
+    r->setStatusCode(k401Unauthorized); return callback(r);
+  }
+  const std::string me = attrsPtr->get<std::string>("user_id");
+  auto db = drogon::app().getDbClient();
+  try {
+    auto res = db->execSqlSync(
+      R"sql(
+        SELECT DISTINCT u.id::text, u.display_name, u.email
+        FROM app_user u
+        JOIN task_role_assignment ra2 ON ra2.user_id = u.id AND ra2.role = 'executor'
+        JOIN task_role_assignment ra1 ON ra1.task_id = ra2.task_id
+             AND ra1.user_id = $1::uuid AND ra1.role IN ('owner', 'supervisor')
+        WHERE u.id != $1::uuid
+        ORDER BY u.display_name
+      )sql", me);
+    Json::Value arr(Json::arrayValue);
+    for (const auto& row : res) {
+      Json::Value u;
+      u["id"]           = row["id"].as<std::string>();
+      u["display_name"] = row["display_name"].isNull() ? "" : row["display_name"].as<std::string>();
+      u["email"]        = row["email"].isNull() ? "" : row["email"].as<std::string>();
+      arr.append(u);
+    }
+    auto r = HttpResponse::newHttpJsonResponse(arr);
+    r->setStatusCode(k200OK); callback(r);
+  } catch (const std::exception& e) {
+    LOG_ERROR << "getMySubordinates: " << e.what();
+    auto r = HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
+    r->setStatusCode(k500InternalServerError); callback(r);
+  }
+}
+
+void UsersController::isSubordinate(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  auto attrsPtr = req->attributes();
+  if (!attrsPtr || !attrsPtr->find("user_id")) {
+    auto r = HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
+    r->setStatusCode(k401Unauthorized); return callback(r);
+  }
+  const std::string me = attrsPtr->get<std::string>("user_id");
+  const std::string targetId = extractUserIdFromPath(req, "is-subordinate");
+  if (targetId.empty()) {
+    auto r = HttpResponse::newHttpJsonResponse(Json::Value("Missing user id"));
+    r->setStatusCode(k400BadRequest); return callback(r);
+  }
+  auto db = drogon::app().getDbClient();
+  try {
+    auto res = db->execSqlSync(
+      R"sql(
+        SELECT EXISTS (
+          SELECT 1 FROM task_role_assignment ra1
+          JOIN task_role_assignment ra2 ON ra1.task_id = ra2.task_id
+          WHERE ra1.user_id = $1::uuid AND ra1.role IN ('owner','supervisor')
+            AND ra2.user_id = $2::uuid AND ra2.role = 'executor'
+        ) AS is_sub
+      )sql", me, targetId);
+    Json::Value j;
+    j["is_subordinate"] = res[0]["is_sub"].as<bool>();
+    auto r = HttpResponse::newHttpJsonResponse(j);
+    r->setStatusCode(k200OK); callback(r);
+  } catch (const std::exception& e) {
+    LOG_ERROR << "isSubordinate: " << e.what();
+    auto r = HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
+    r->setStatusCode(k500InternalServerError); callback(r);
+  }
+}
+
+void UsersController::getUserAvailability(
+    const HttpRequestPtr& req,
+    std::function<void(const HttpResponsePtr&)>&& callback) {
+  auto attrsPtr = req->attributes();
+  if (!attrsPtr || !attrsPtr->find("user_id")) {
+    auto r = HttpResponse::newHttpJsonResponse(Json::Value("Unauthorized"));
+    r->setStatusCode(k401Unauthorized); return callback(r);
+  }
+  const std::string targetId = extractUserIdFromPath(req, "availability");
+  if (targetId.empty()) {
+    auto r = HttpResponse::newHttpJsonResponse(Json::Value("Missing user id"));
+    r->setStatusCode(k400BadRequest); return callback(r);
+  }
+  std::string weekParam = req->getParameter("week");
+  if (weekParam.empty()) {
+    auto now = std::chrono::system_clock::now();
+    auto t   = std::chrono::system_clock::to_time_t(now);
+    char buf[12]; std::strftime(buf, sizeof(buf), "%Y-%m-%d", std::gmtime(&t));
+    weekParam = buf;
+  }
+  auto db = drogon::app().getDbClient();
+  try {
+    // Tasks: any task where user is assigned, with start_date in the week
+    auto taskRes = db->execSqlSync(
+      R"sql(
+        SELECT DISTINCT t.start_date::text AS d
+        FROM task t
+        JOIN task_role_assignment ra ON ra.task_id = t.id
+        WHERE ra.user_id = $1::uuid
+          AND t.start_date >= date_trunc('week', $2::date)
+          AND t.start_date <  date_trunc('week', $2::date) + INTERVAL '7 days'
+          AND t.status NOT IN ('completed','cancelled')
+      )sql", targetId, weekParam);
+
+    // Meetings where user is participant
+    auto meetRes = db->execSqlSync(
+      R"sql(
+        SELECT (m.start_at AT TIME ZONE 'UTC')::text AS start_utc,
+               m.duration_min
+        FROM meeting m
+        JOIN meeting_participant mp ON mp.meeting_id = m.id
+        WHERE mp.user_id = $1::uuid
+          AND m.start_at >= date_trunc('week', $2::date::timestamptz)
+          AND m.start_at <  date_trunc('week', $2::date::timestamptz) + INTERVAL '7 days'
+      )sql", targetId, weekParam);
+
+    // Work schedule for this user
+    auto schedRes = db->execSqlSync(
+      R"sql(
+        SELECT day_of_week, start_time::text, end_time::text, is_working_day
+        FROM work_schedule WHERE user_id = $1::uuid
+      )sql", targetId);
+
+    // Build schedule map: day_of_week (1=Mon) -> {start, end}
+    std::map<int, std::pair<std::string,std::string>> sched;
+    for (const auto& row : schedRes) {
+      if (!row["is_working_day"].as<bool>()) continue;
+      int dow = row["day_of_week"].as<int>();
+      std::string st = row["start_time"].isNull() ? "09:00" : row["start_time"].as<std::string>().substr(0,5);
+      std::string et = row["end_time"].isNull()   ? "18:00" : row["end_time"].as<std::string>().substr(0,5);
+      sched[dow] = {st, et};
+    }
+    // Default schedule if none set
+    if (sched.empty()) {
+      for (int d = 1; d <= 5; d++) sched[d] = {"09:00", "18:00"};
+    }
+
+    std::map<std::string, std::vector<std::pair<std::string,std::string>>> busyByDate;
+
+    // Tasks: mark full work day as busy
+    for (const auto& row : taskRes) {
+      std::string dateStr = row["d"].as<std::string>();
+      auto dowRes = db->execSqlSync(
+          "SELECT EXTRACT(ISODOW FROM $1::date)::int AS dow", dateStr);
+      if (dowRes.empty()) continue;
+      int dow = dowRes[0]["dow"].as<int>();
+      auto it = sched.find(dow);
+      if (it != sched.end()) {
+        busyByDate[dateStr].emplace_back(it->second.first, it->second.second);
+      }
+    }
+
+    // Meetings: exact time slots
+    for (const auto& row : meetRes) {
+      if (row["start_utc"].isNull()) continue;
+      std::string startUtc = row["start_utc"].as<std::string>(); // "2026-05-12 10:00:00"
+      int durMin = row["duration_min"].as<int>();
+      std::string dateStr = startUtc.substr(0,10);
+      std::string startTime = startUtc.length() >= 16 ? startUtc.substr(11,5) : "00:00";
+      int h = std::stoi(startTime.substr(0,2));
+      int m_val = std::stoi(startTime.substr(3,2));
+      m_val += durMin; h += m_val/60; m_val %= 60;
+      if (h > 23) h = 23;
+      char endBuf[6]; std::snprintf(endBuf, sizeof(endBuf), "%02d:%02d", h, m_val);
+      busyByDate[dateStr].emplace_back(startTime, std::string(endBuf));
+    }
+
+    Json::Value result(Json::arrayValue);
+    for (auto& [date, slots] : busyByDate) {
+      Json::Value day;
+      day["date"] = date;
+      Json::Value slotsArr(Json::arrayValue);
+      for (auto& [s, e] : slots) {
+        Json::Value slot;
+        slot["start"] = s; slot["end"] = e;
+        slotsArr.append(slot);
+      }
+      day["busy_slots"] = slotsArr;
+      result.append(day);
+    }
+    auto r = HttpResponse::newHttpJsonResponse(result);
+    r->setStatusCode(k200OK); callback(r);
+  } catch (const std::exception& ex) {
+    LOG_ERROR << "getUserAvailability: " << ex.what();
+    auto r = HttpResponse::newHttpJsonResponse(Json::Value("Internal server error"));
+    r->setStatusCode(k500InternalServerError); callback(r);
   }
 }
 
