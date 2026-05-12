@@ -2364,9 +2364,10 @@ class TestCrossProjectScheduling:
             "start_date": "2026-09-01",
             "due_date": "2026-09-30",
             "assignee_user_id": registered_user.user_id,
-            "estimated_hours": 80,
+            "estimated_hours": 20,
         }
         task_resp = registered_user.post("/tasks", task_data, auth=True)
+        assert task_resp.status_code == 201, f"Task creation failed: {task_resp.text}"
         task_id = task_resp.json()["id"]
 
         registered_user.post(
