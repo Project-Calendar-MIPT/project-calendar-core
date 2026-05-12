@@ -3,8 +3,9 @@ FROM drogonframework/drogon:latest AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Only missing deps: rdkafka, bcrypt, jwt-cpp
+# Extra deps not in drogon base: rdkafka, libpq-dev (ensure PG support), bcrypt, jwt-cpp
 RUN apt-get update && apt-get install -y \
+    libpq-dev \
     librdkafka-dev \
     && rm -rf /var/lib/apt/lists/*
 

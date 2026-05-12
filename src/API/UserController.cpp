@@ -872,15 +872,14 @@ void UsersController::getUserAvailability(
     // Work schedule for this user
     auto schedRes = db->execSqlSync(
       R"sql(
-        SELECT day_of_week, start_time::text, end_time::text, is_working_day
-        FROM work_schedule WHERE user_id = $1::uuid
+        SELECT weekday, start_time::text, end_time::text
+        FROM user_work_schedule WHERE user_id = $1::uuid
       )sql", targetId);
 
-    // Build schedule map: day_of_week (1=Mon) -> {start, end}
+    // Build schedule map: weekday (1=Mon, ISODOW) -> {start, end}
     std::map<int, std::pair<std::string,std::string>> sched;
     for (const auto& row : schedRes) {
-      if (!row["is_working_day"].as<bool>()) continue;
-      int dow = row["day_of_week"].as<int>();
+      int dow = row["weekday"].as<int>();
       std::string st = row["start_time"].isNull() ? "09:00" : row["start_time"].as<std::string>().substr(0,5);
       std::string et = row["end_time"].isNull()   ? "18:00" : row["end_time"].as<std::string>().substr(0,5);
       sched[dow] = {st, et};

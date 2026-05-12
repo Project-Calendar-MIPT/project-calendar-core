@@ -14,11 +14,8 @@ jobs:
         with:
           submodules: false
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Build Docker image
-        run: docker build -f Dockerfile. -t calendar-backend:ci .
+        run: DOCKER_BUILDKIT=1 docker build -f Dockerfile. -t calendar-backend:ci .
 
       - name: Export image
         run: docker save calendar-backend:ci | gzip > /tmp/backend-image.tar.gz
@@ -70,6 +67,15 @@ jobs:
             -f tests/docker-compose.ci-override.yml \
             up -d --no-build
 
+      - name: Early backend startup logs
+        run: |
+          sleep 8
+          docker ps -a
+          docker compose \
+            -f tests/docker-compose.test.yml \
+            -f tests/docker-compose.ci-override.yml \
+            logs backend-test
+
       - name: Wait for backend
         run: |
           for i in $(seq 1 30); do
@@ -88,9 +94,10 @@ jobs:
           cd tests
           python -m pytest test_api.py -v --tb=short
 
-      - name: Dump logs on failure
-        if: failure()
+      - name: Dump container status and logs
+        if: always()
         run: |
+          docker ps -a
           docker compose \
             -f tests/docker-compose.test.yml \
             -f tests/docker-compose.ci-override.yml \
