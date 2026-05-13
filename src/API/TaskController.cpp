@@ -340,10 +340,10 @@ void TaskController::createTask(
 
     // Validate enum values before hitting DB
     {
-      static const std::set<std::string> kValidPriorities = {"low", "normal", "high", "critical"};
+      static const std::set<std::string> kValidPriorities = {"low", "normal", "high", "urgent"};
       if (kValidPriorities.find(priority) == kValidPriorities.end()) {
         auto resp = HttpResponse::newHttpJsonResponse(
-            Json::Value("Invalid priority. Must be: low, normal, high, critical"));
+            Json::Value("Invalid priority. Must be: low, normal, high, urgent"));
         resp->setStatusCode(k400BadRequest);
         return callback(resp);
       }
