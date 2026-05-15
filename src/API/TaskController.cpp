@@ -279,7 +279,10 @@ void TaskController::createTask(
     return callback(resp);
   }
 
-  if (payloadHasAnyDate && !assigneeUserId.has_value()) {
+  const bool isSubtask =
+      j.isMember("parent_task_id") && !j["parent_task_id"].isNull() &&
+      j["parent_task_id"].isString() && !j["parent_task_id"].asString().empty();
+  if (payloadHasAnyDate && !assigneeUserId.has_value() && isSubtask) {
     auto resp = HttpResponse::newHttpJsonResponse(
         Json::Value("Tasks with start_date or due_date must have an assignee_user_id"));
     resp->setStatusCode(k400BadRequest);
