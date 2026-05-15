@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <bcrypt.h>
+#include <regex>
 #include <cctype>
 #include <cstdlib>
 #include <exception>
@@ -215,6 +216,7 @@ void AuthController::registerUser(
         verificationToken, skipVerify, createdUserId);
 
     if (!workScheduleJson.empty()) {
+      static const std::regex kTimeRegex(R"(^\d{1,2}:\d{2}(:\d{2})?$)");
       drogon::orm::Mapper<UserWorkSchedule> wsMapper(trans);
       for (Json::UInt i = 0; i < workScheduleJson.size(); ++i) {
         const Json::Value item = workScheduleJson[i];
@@ -226,10 +228,24 @@ void AuthController::registerUser(
         if (weekday == 7) weekday = 0;  // ISO Sunday(7) → DB Sunday(0)
         ws.setWeekday(weekday);
         if (item.isMember("start_time") && item["start_time"].isString()) {
-          ws.setStartTime(item["start_time"].asString());
+          const std::string st = item["start_time"].asString();
+          if (!std::regex_match(st, kTimeRegex)) {
+            auto resp = HttpResponse::newHttpJsonResponse(
+                Json::Value("Invalid start_time format. Expected HH:MM or HH:MM:SS"));
+            resp->setStatusCode(k400BadRequest);
+            return callback(resp);
+          }
+          ws.setStartTime(st);
         }
         if (item.isMember("end_time") && item["end_time"].isString()) {
-          ws.setEndTime(item["end_time"].asString());
+          const std::string et = item["end_time"].asString();
+          if (!std::regex_match(et, kTimeRegex)) {
+            auto resp = HttpResponse::newHttpJsonResponse(
+                Json::Value("Invalid end_time format. Expected HH:MM or HH:MM:SS"));
+            resp->setStatusCode(k400BadRequest);
+            return callback(resp);
+          }
+          ws.setEndTime(et);
         }
         wsMapper.insert(ws);
       }
