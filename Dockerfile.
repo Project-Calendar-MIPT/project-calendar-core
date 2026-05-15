@@ -1,5 +1,5 @@
 # Stage 1: build — Drogon already compiled in base image
-FROM drogonframework/drogon:latest AS builder
+FROM --platform=linux/amd64 drogonframework/drogon:latest AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -32,7 +32,7 @@ RUN mkdir -p build && cd build && \
     make -j$(nproc)
 
 # Stage 2: minimal runtime (ubuntu matches drogonframework/drogon builder base)
-FROM ubuntu:22.04
+FROM --platform=linux/amd64 ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
