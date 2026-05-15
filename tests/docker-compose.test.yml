@@ -1,6 +1,7 @@
 services:
   db-test:
     image: postgres:16
+    platform: linux/amd64
     container_name: project-calendar-db-test
     environment:
       POSTGRES_USER: pc_admin
@@ -17,6 +18,7 @@ services:
       retries: 5
 
   backend-test:
+    platform: linux/amd64
     build:
       context: ..
       dockerfile: Dockerfile.
