@@ -942,6 +942,61 @@ class TestTaskTimeAndAvailability:
         response = registered_user.post("/tasks", task_data, auth=True)
         assert response.status_code == 201
 
+    def test_meeting_hours_count_toward_weekly_limit(self, registered_user):
+        """Meeting duration_min should reduce available task capacity for the week."""
+        # Create a 36h meeting (2160 min) for the assignee in the target week
+        meeting_resp = registered_user.post(
+            "/meetings",
+            {
+                "title": "Long meeting",
+                "start_at": "2026-08-03T09:00:00Z",
+                "duration_min": 2160,
+                "participants": [registered_user.user_id],
+            },
+            auth=True,
+        )
+        assert meeting_resp.status_code == 201
+
+        # 36h meeting + 10h task = 46h > 40h limit → should be rejected
+        task_data = {
+            "title": "Over capacity task",
+            "description": "Should exceed weekly limit",
+            "start_date": "2026-08-03",
+            "due_date": "2026-08-07",
+            "assignee_user_id": registered_user.user_id,
+            "estimated_hours": 10,
+        }
+        resp = registered_user.post("/tasks", task_data, auth=True)
+        assert resp.status_code == 422, f"Expected 422 but got {resp.status_code}: {resp.text}"
+        assert resp.json().get("error") == "weekly_limit_exceeded"
+
+    def test_meeting_hours_within_limit_still_allowed(self, registered_user):
+        """Task creation succeeds when tasks + meetings stay within 40h/week."""
+        # Create a 20h meeting in target week
+        meeting_resp = registered_user.post(
+            "/meetings",
+            {
+                "title": "Medium meeting",
+                "start_at": "2026-09-07T09:00:00Z",
+                "duration_min": 1200,
+                "participants": [registered_user.user_id],
+            },
+            auth=True,
+        )
+        assert meeting_resp.status_code == 201
+
+        # 20h meeting + 15h task = 35h < 40h → should succeed
+        task_data = {
+            "title": "Within capacity task",
+            "description": "Should be within weekly limit",
+            "start_date": "2026-09-07",
+            "due_date": "2026-09-11",
+            "assignee_user_id": registered_user.user_id,
+            "estimated_hours": 15,
+        }
+        resp = registered_user.post("/tasks", task_data, auth=True)
+        assert resp.status_code == 201, f"Expected 201 but got {resp.status_code}: {resp.text}"
+
     def test_task_with_dates_auto_status_in_progress(self, registered_user):
         task_data = {
             "title": "Timed task auto status",
