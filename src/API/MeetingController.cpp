@@ -41,11 +41,8 @@ void MeetingController::createMeeting(
     auto r = HttpResponse::newHttpJsonResponse(Json::Value("start_at required"));
     r->setStatusCode(k400BadRequest); return callback(r);
   }
-  if (!j.isMember("participant_ids") || !j["participant_ids"].isArray()
-      || j["participant_ids"].empty()) {
-    auto r = HttpResponse::newHttpJsonResponse(Json::Value("participant_ids required"));
-    r->setStatusCode(k400BadRequest); return callback(r);
-  }
+  // participant_ids is optional; organizer is always added automatically
+
 
   const std::string title       = j["title"].asString();
   const std::string description = j.isMember("description") ? j["description"].asString() : "";

@@ -951,11 +951,10 @@ class TestTaskTimeAndAvailability:
                 "title": "Long meeting",
                 "start_at": "2026-08-03T09:00:00Z",
                 "duration_min": 2160,
-                "participants": [registered_user.user_id],
             },
             auth=True,
         )
-        assert meeting_resp.status_code == 201
+        assert meeting_resp.status_code == 201, f"Meeting creation failed: {meeting_resp.text}"
 
         # 36h meeting + 10h task = 46h > 40h limit → should be rejected
         task_data = {
@@ -979,11 +978,10 @@ class TestTaskTimeAndAvailability:
                 "title": "Medium meeting",
                 "start_at": "2026-09-07T09:00:00Z",
                 "duration_min": 1200,
-                "participants": [registered_user.user_id],
             },
             auth=True,
         )
-        assert meeting_resp.status_code == 201
+        assert meeting_resp.status_code == 201, f"Meeting creation failed: {meeting_resp.text}"
 
         # 20h meeting + 15h task = 35h < 40h → should succeed
         task_data = {
