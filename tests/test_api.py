@@ -923,9 +923,9 @@ class TestUpdateAllFields:
 class TestTaskTimeAndAvailability:
     """Test new APIs for time split, availability and workload"""
 
-    def test_task_with_dates_requires_assignee(self, registered_user):
-        # Super-projects (no parent_task_id) don't need an assignee.
-        # Only subtasks (with parent_task_id) with dates must have an assignee.
+    def test_task_with_dates_no_assignee_allowed(self, registered_user):
+        # Subtasks with dates are allowed without an explicit assignee_user_id —
+        # the creator becomes the owner automatically.
         parent = registered_user.post(
             "/tasks", {"title": "Parent task", "description": "Parent"}, auth=True
         )
@@ -934,13 +934,13 @@ class TestTaskTimeAndAvailability:
 
         task_data = {
             "title": "Timed subtask without assignee",
-            "description": "Should fail",
+            "description": "Should succeed",
             "parent_task_id": parent_id,
             "start_date": "2026-03-14",
             "due_date": "2026-03-16",
         }
         response = registered_user.post("/tasks", task_data, auth=True)
-        assert response.status_code == 400
+        assert response.status_code == 201
 
     def test_task_with_dates_auto_status_in_progress(self, registered_user):
         task_data = {
@@ -2797,7 +2797,9 @@ class TestSuperProjectBehavior:
         )
         assert resp.status_code == 201, resp.text
 
-    def test_subtask_with_dates_without_assignee_rejected(self, registered_user):
+    def test_subtask_with_dates_without_assignee_allowed(self, registered_user):
+        # Subtasks with dates no longer require an explicit assignee —
+        # the creator is automatically assigned as owner.
         parent = registered_user.post(
             "/tasks",
             {"title": "Root", "description": "Root project"},
@@ -2808,14 +2810,14 @@ class TestSuperProjectBehavior:
             "/tasks",
             {
                 "title": "Child with dates no assignee",
-                "description": "Should be rejected",
+                "description": "Should succeed",
                 "parent_task_id": parent.json()["id"],
                 "start_date": "2026-06-01",
                 "due_date": "2026-06-30",
             },
             auth=True,
         )
-        assert resp.status_code == 400
+        assert resp.status_code == 201
 
     def test_subtask_with_dates_and_assignee_succeeds(self, registered_user):
         parent = registered_user.post(
