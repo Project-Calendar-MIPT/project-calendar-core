@@ -1169,9 +1169,12 @@ class TestProjectsApi:
         list_resp = second_client.get(
             "/projects", params={"visibility": "public"}, auth=True
         )
-        assert list_resp.status_code == 200
+        assert list_resp.status_code == 200, f"Expected 200, got {list_resp.status_code}: {list_resp.text}"
         ids = {item["id"] for item in list_resp.json() if "id" in item}
-        assert public_resp.json()["id"] in ids
+        assert public_resp.json()["id"] in ids, (
+            f"Public project {public_resp.json()['id']} not found in second user's project list. "
+            f"Got ids: {ids}, full response: {list_resp.json()}"
+        )
         assert private_resp.json()["id"] not in ids
 
     def test_project_progress_percent(self, registered_user):
