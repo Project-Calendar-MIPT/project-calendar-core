@@ -41,7 +41,13 @@ void MeetingController::createMeeting(
     auto r = HttpResponse::newHttpJsonResponse(Json::Value("start_at required"));
     r->setStatusCode(k400BadRequest); return callback(r);
   }
-  // participant_ids is optional; organizer is always added automatically
+  // participant_ids is optional (omit entirely for solo meeting),
+  // but if provided it must be non-empty
+  if (j.isMember("participant_ids") && j["participant_ids"].isArray()
+      && j["participant_ids"].empty()) {
+    auto r = HttpResponse::newHttpJsonResponse(Json::Value("participant_ids must not be empty when provided"));
+    r->setStatusCode(k400BadRequest); return callback(r);
+  }
 
 
   const std::string title       = j["title"].asString();
