@@ -129,10 +129,8 @@ jobs:
 
             cd /home/user/calendar
             git pull
-            cd core
-            git pull
+            cd core && git pull origin main
             cd ..
-            git submodule update --remote --recursive --init
 
             sudo docker compose up -d --build
 
