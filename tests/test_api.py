@@ -550,6 +550,7 @@ class TestDateValidation:
             "assignee_user_id": registered_user.user_id,
         }
         proj_resp = registered_user.post("/tasks", project_data, auth=True)
+        assert proj_resp.status_code == 201, proj_resp.text
         project_id = proj_resp.json()["id"]
 
         task_data = {
@@ -572,6 +573,7 @@ class TestDateValidation:
             "assignee_user_id": registered_user.user_id,
         }
         proj_resp = registered_user.post("/tasks", project_data, auth=True)
+        assert proj_resp.status_code == 201, proj_resp.text
         project_id = proj_resp.json()["id"]
 
         task_data = {
@@ -3029,7 +3031,8 @@ class TestMeetingsApi:
         """Create a task where organizer=owner, participant=executor."""
         task = organizer.post(
             "/tasks",
-            {"title": "Meeting Task", "description": "subordinate setup"},
+            {"title": "Meeting Task", "description": "subordinate setup",
+             "assignee_user_id": organizer.user_id},
             auth=True,
         )
         assert task.status_code == 201
@@ -3345,7 +3348,8 @@ class TestUserSubordinates:
         executor = self._make_user(client, "exec")
         task = registered_user.post(
             "/tasks",
-            {"title": "Sub Task", "description": "subordinate setup"},
+            {"title": "Sub Task", "description": "subordinate setup",
+             "assignee_user_id": registered_user.user_id},
             auth=True,
         )
         assert task.status_code == 201
