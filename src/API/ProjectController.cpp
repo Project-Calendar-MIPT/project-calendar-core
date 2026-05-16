@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <string>
 
+#include "API/KafkaProducer.h"
 #include "API/RbacHelpers.h"
 #include "models/Task.h"
 #include "models/TaskAssignment.h"
@@ -36,6 +37,11 @@ std::string getPathVariableCompat(const HttpRequestPtr& req,
     ++start;
   }
   return p.substr(start, pos - start + 1);
+}
+
+std::string getFrontendUrl() {
+  const char* v = std::getenv("FRONTEND_URL");
+  return (v && *v) ? std::string(v) : std::string("http://localhost:5173");
 }
 
 bool isAllowedVisibility(const std::string& visibility) {
@@ -1313,6 +1319,34 @@ void ProjectController::inviteUser(
         VALUES ($1::uuid, $2::uuid, $3::uuid, 'invite', 'pending')
         )sql",
         projectId, requesterId, inviteeUserId);
+
+    // Send invitation email via Kafka
+    try {
+      auto inviteeInfo = dbClient->execSqlSync(
+          "SELECT email, display_name FROM app_user WHERE id = $1::uuid LIMIT 1",
+          inviteeUserId);
+      auto projectInfo = dbClient->execSqlSync(
+          "SELECT title FROM task WHERE id = $1::uuid LIMIT 1", projectId);
+      if (!inviteeInfo.empty() && !projectInfo.empty()) {
+        const std::string inviteeEmail = inviteeInfo[0]["email"].as<std::string>();
+        const std::string displayName = inviteeInfo[0]["display_name"].isNull()
+            ? inviteeEmail : inviteeInfo[0]["display_name"].as<std::string>();
+        const std::string projectTitle = projectInfo[0]["title"].as<std::string>();
+        const std::string joinUrl = getFrontendUrl() + "/projects/" + projectId;
+
+        Json::Value event;
+        event["email"]         = inviteeEmail;
+        event["display_name"]  = displayName;
+        event["project_id"]    = projectId;
+        event["project_title"] = projectTitle;
+        event["join_url"]      = joinUrl;
+
+        Json::FastWriter fw;
+        KafkaProducer::instance().produce("project-invitation", inviteeUserId, fw.write(event));
+      }
+    } catch (const std::exception& emailEx) {
+      LOG_WARN << "inviteUser: failed to send invitation email: " << emailEx.what();
+    }
 
     Json::Value out(Json::objectValue);
     out["invited"] = true;

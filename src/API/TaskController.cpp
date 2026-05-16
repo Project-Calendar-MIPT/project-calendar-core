@@ -279,16 +279,6 @@ void TaskController::createTask(
     return callback(resp);
   }
 
-  const bool isSubtask =
-      j.isMember("parent_task_id") && !j["parent_task_id"].isNull() &&
-      j["parent_task_id"].isString() && !j["parent_task_id"].asString().empty();
-  if (payloadHasAnyDate && !assigneeUserId.has_value() && isSubtask) {
-    auto resp = HttpResponse::newHttpJsonResponse(
-        Json::Value("Tasks with start_date or due_date must have an assignee_user_id"));
-    resp->setStatusCode(k400BadRequest);
-    return callback(resp);
-  }
-
   std::optional<std::string> payloadStatus =
       (j.isMember("status") && j["status"].isString())
           ? std::make_optional(j["status"].asString())
@@ -377,13 +367,25 @@ void TaskController::createTask(
     if (assigneeUserId.has_value() && !startDateStr.empty() && estimatedHours > 0) {
       auto capRes = trans->execSqlSync(
         R"sql(
-          SELECT COALESCE(SUM(t.estimated_hours), 0) AS total
-          FROM task t
-          JOIN task_role_assignment ra ON ra.task_id = t.id
-          WHERE ra.user_id = $1::uuid
-            AND ra.role    = 'executor'
-            AND t.start_date >= date_trunc('week', $2::date)
-            AND t.start_date <  date_trunc('week', $2::date) + INTERVAL '7 days'
+          SELECT (
+            COALESCE((
+              SELECT SUM(t.estimated_hours)
+              FROM task t
+              JOIN task_role_assignment ra ON ra.task_id = t.id
+              WHERE ra.user_id = $1::uuid
+                AND ra.role    = 'executor'
+                AND t.start_date >= date_trunc('week', $2::date)
+                AND t.start_date <  date_trunc('week', $2::date) + INTERVAL '7 days'
+            ), 0) +
+            COALESCE((
+              SELECT SUM(m.duration_min::numeric / 60)
+              FROM meeting m
+              LEFT JOIN meeting_participant mp ON mp.meeting_id = m.id AND mp.user_id = $1::uuid
+              WHERE (m.organizer_id = $1::uuid OR mp.user_id IS NOT NULL)
+                AND m.start_at >= date_trunc('week', $2::date)
+                AND m.start_at <  date_trunc('week', $2::date) + INTERVAL '7 days'
+            ), 0)
+          ) AS total
         )sql",
         *assigneeUserId, startDateStr);
       const double currentHours = capRes.empty() ? 0.0
@@ -1859,6 +1861,56 @@ void TaskController::createAssignment(
               Json::Value("Project must have exactly one owner"));
           resp->setStatusCode(k400BadRequest);
           return callback(resp);
+        }
+      }
+    }
+
+    // Capacity check: reject if adding this task would exceed 40h/week (tasks + meetings)
+    {
+      auto taskInfo = dbClient->execSqlSync(
+          "SELECT start_date::text AS start_date, estimated_hours "
+          "FROM \"task\" WHERE id = $1 LIMIT 1",
+          taskId);
+      if (!taskInfo.empty() && !taskInfo[0]["start_date"].isNull()) {
+        const std::string taskStart = taskInfo[0]["start_date"].as<std::string>();
+        const double taskHours = taskInfo[0]["estimated_hours"].isNull()
+                                     ? 0.0
+                                     : taskInfo[0]["estimated_hours"].as<double>();
+        const double effectiveHours = assignedHours ? *assignedHours : taskHours;
+        if (effectiveHours > 0) {
+          auto capRes = dbClient->execSqlSync(
+            R"sql(
+              SELECT (
+                COALESCE((
+                  SELECT SUM(t.estimated_hours)
+                  FROM task t
+                  JOIN task_role_assignment ra ON ra.task_id = t.id
+                  WHERE ra.user_id = $1::uuid
+                    AND ra.role    = 'executor'
+                    AND t.start_date >= date_trunc('week', $2::date)
+                    AND t.start_date <  date_trunc('week', $2::date) + INTERVAL '7 days'
+                ), 0) +
+                COALESCE((
+                  SELECT SUM(m.duration_min::numeric / 60)
+                  FROM meeting m
+                  LEFT JOIN meeting_participant mp ON mp.meeting_id = m.id AND mp.user_id = $1::uuid
+                  WHERE (m.organizer_id = $1::uuid OR mp.user_id IS NOT NULL)
+                    AND m.start_at >= date_trunc('week', $2::date)
+                    AND m.start_at <  date_trunc('week', $2::date) + INTERVAL '7 days'
+                ), 0)
+              ) AS total
+            )sql",
+            assUserId, taskStart);
+          const double currentHours = capRes.empty() ? 0.0 : capRes[0]["total"].as<double>();
+          if (currentHours + effectiveHours > 40.0) {
+            Json::Value errJ;
+            errJ["error"]   = "weekly_limit_exceeded";
+            errJ["current"] = currentHours;
+            errJ["limit"]   = 40;
+            auto resp = HttpResponse::newHttpJsonResponse(errJ);
+            resp->setStatusCode(k422UnprocessableEntity);
+            return callback(resp);
+          }
         }
       }
     }
