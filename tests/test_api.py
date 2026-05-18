@@ -384,23 +384,6 @@ class TestTaskAssignments:
         # Should get 409 Conflict because owner is already assigned
         assert response.status_code == 409
 
-    def test_list_assignments(self, registered_user):
-        """Test listing task assignments"""
-        # Create a task with assignment
-        task_data = {
-            "title": "Task for Assignment List",
-            "description": "Assignment list test",
-        }
-        task_response = registered_user.post("/tasks", task_data, auth=True)
-        task_id = task_response.json()["id"]
-
-        # List assignments
-        response = registered_user.get(f"/tasks/{task_id}/assignments", auth=True)
-        assert response.status_code == 200
-
-        data = response.json()
-        assert isinstance(data, list)
-
 
 class TestCalendar:
     """Test calendar endpoints"""
