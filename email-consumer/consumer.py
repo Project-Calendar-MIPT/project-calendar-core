@@ -26,7 +26,7 @@ SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 SMTP_TLS = os.environ.get("SMTP_TLS", "false").lower() == "true"
 EMAIL_FROM = os.environ.get("EMAIL_FROM", "noreply@mipt.impelix.dev")
-TOPIC = "user-registration"
+TOPICS = ["user-registration", "project-invitation"]
 GROUP_ID = "email-consumer-group"
 
 
@@ -77,11 +77,12 @@ def run() -> None:
         "group.id": GROUP_ID,
         "auto.offset.reset": "earliest",
         "enable.auto.commit": True,
+        "allow.auto.create.topics": True,
     }
 
     consumer = Consumer(conf)
-    consumer.subscribe([TOPIC])
-    log.info("Subscribed to topic '%s' on %s", TOPIC, KAFKA_SERVERS)
+    consumer.subscribe(TOPICS)
+    log.info("Subscribed to topics %s on %s", TOPICS, KAFKA_SERVERS)
 
     try:
         while True:
