@@ -19,7 +19,7 @@ services:
 
   kafka:
     image: apache/kafka:3.7.0
-    container_name: project-calendar-kafka
+    container_name: calendar-kafka
     environment:
       - KAFKA_NODE_ID=0
       - KAFKA_PROCESS_ROLES=controller,broker
@@ -47,6 +47,19 @@ services:
       - "1025:1025"   # SMTP
       - "8025:8025"   # Web UI → http://localhost:8025
 
+  kafka-init:
+    image: apache/kafka:3.7.0
+    container_name: project-calendar-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: >
+      sh -c "
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --topic user-registration --partitions 1 --replication-factor 1 --if-not-exists &&
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --topic project-invitation --partitions 1 --replication-factor 1 --if-not-exists
+      "
+    restart: "no"
+
   email-consumer:
     build:
       context: ./email-consumer
@@ -54,6 +67,8 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       SMTP_HOST: mailhog

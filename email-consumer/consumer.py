@@ -130,6 +130,7 @@ def run() -> None:
         "group.id": GROUP_ID,
         "auto.offset.reset": "earliest",
         "enable.auto.commit": True,
+        "allow.auto.create.topics": True,
     }
 
     consumer = Consumer(conf)
